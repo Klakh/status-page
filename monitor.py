@@ -9,28 +9,10 @@ from datetime import datetime, date, timedelta
 # --- CONFIGURATION DES SERVICES ---
 SERVICES = [
     {
-        "id": "jellyfin",
-        "name": "Jellyfin",
+        "id": "ktv",
+        "name": "K.tv",
         "url": "https://example.com",
-        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png"
-    },
-    {
-        "id": "immich",
-        "name": "Immich",
-        "url": "https://example.com",
-        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/immich.png"
-    },
-    {
-        "id": "outline",
-        "name": "Outline Wiki",
-        "url": "https://example.com",
-        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/outline.png"
-    },
-    {
-        "id": "mailcow",
-        "name": "Serveur Mail",
-        "url": "https://example.com",
-        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mailcow.png"
+        "icon": "https://example.com/img/icons/ktv.webp"
     },
 ]
 

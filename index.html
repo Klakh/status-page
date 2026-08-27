@@ -219,7 +219,7 @@
                 <span class="pulse-dot"></span>
                 <span>Monitoring actif — Vérifications toutes les minutes</span>
             </div>
-            <p id="last-update-banner">Dernier rapport généré : <strong id="last-update-timer" data-timestamp="1787873942">--</strong></p>
+            <p id="last-update-banner">Dernier rapport généré : <strong id="last-update-timer" data-timestamp="1787874063">--</strong></p>
         </div>
 
         <div class="record-card">
@@ -231,8 +231,8 @@
             </div>
         </div>
 
-        <div class="global-banner down">
-            Perturbation sur un ou plusieurs services
+        <div class="global-banner up">
+            Tous les systèmes sont opérationnels
         </div>
 
         <div class="controls">
@@ -248,75 +248,21 @@
 
         <div id="services-list">
 
-            <div class="service-card" data-service-id="jellyfin">
+            <div class="service-card" data-service-id="ktv">
                 <div class="service-header">
                     <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>Jellyfin ↗</span>
+                        <img src="https://example.com/img/icons/ktv.webp" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>K.tv ↗</span>
                     </a>
                     <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-jellyfin" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
-                        <span class="badge down">Inaccessible</span>
-                    </div>
-                </div>
-                <div class="timer-info">Hors ligne depuis : <strong data-since="1787873942">--</strong></div>
-                <div class="history-bars" id="bars-jellyfin"></div>
-                <div class="history-legend">
-                    <span id="legend-start-jellyfin">--</span>
-                    <span>Maintenant</span>
-                </div>
-            </div>
-            <div class="service-card" data-service-id="immich">
-                <div class="service-header">
-                    <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/immich.png" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>Immich ↗</span>
-                    </a>
-                    <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-immich" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
-                        <span class="badge down">Inaccessible</span>
-                    </div>
-                </div>
-                <div class="timer-info">Hors ligne depuis : <strong data-since="1787873942">--</strong></div>
-                <div class="history-bars" id="bars-immich"></div>
-                <div class="history-legend">
-                    <span id="legend-start-immich">--</span>
-                    <span>Maintenant</span>
-                </div>
-            </div>
-            <div class="service-card" data-service-id="outline">
-                <div class="service-header">
-                    <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/outline.png" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>Outline Wiki ↗</span>
-                    </a>
-                    <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-outline" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="uptime-pct" id="uptime-ktv" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
                         <span class="badge up">En ligne</span>
                     </div>
                 </div>
-                <div class="timer-info">En ligne depuis : <strong data-since="1787873942">--</strong></div>
-                <div class="history-bars" id="bars-outline"></div>
+                <div class="timer-info">En ligne depuis : <strong data-since="1787874063">--</strong></div>
+                <div class="history-bars" id="bars-ktv"></div>
                 <div class="history-legend">
-                    <span id="legend-start-outline">--</span>
-                    <span>Maintenant</span>
-                </div>
-            </div>
-            <div class="service-card" data-service-id="mailcow">
-                <div class="service-header">
-                    <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mailcow.png" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>Serveur Mail ↗</span>
-                    </a>
-                    <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-mailcow" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
-                        <span class="badge up">En ligne</span>
-                    </div>
-                </div>
-                <div class="timer-info">En ligne depuis : <strong data-since="1787873942">--</strong></div>
-                <div class="history-bars" id="bars-mailcow"></div>
-                <div class="history-legend">
-                    <span id="legend-start-mailcow">--</span>
+                    <span id="legend-start-ktv">--</span>
                     <span>Maintenant</span>
                 </div>
             </div>
@@ -325,8 +271,8 @@
     </div>
 
     <script>
-        const rawHistory5m = {"jellyfin": {"1787873700": {"up": 0, "total": 1}}, "immich": {"1787873700": {"up": 0, "total": 1}}, "outline": {"1787873700": {"up": 1, "total": 1}}, "mailcow": {"1787873700": {"up": 1, "total": 1}}};
-        const rawHistory1d = {"ktv": {"2026-08-27": {"up": 14, "total": 14}}, "jellyfin": {"2026-08-27": {"up": 0, "total": 1}}, "immich": {"2026-08-27": {"up": 0, "total": 1}}, "outline": {"2026-08-27": {"up": 1, "total": 1}}, "mailcow": {"2026-08-27": {"up": 1, "total": 1}}};
+        const rawHistory5m = {"jellyfin": {"1787873700": {"up": 0, "total": 1}, "1787874000": {"up": 0, "total": 1}}, "immich": {"1787873700": {"up": 0, "total": 1}, "1787874000": {"up": 0, "total": 1}}, "outline": {"1787873700": {"up": 1, "total": 1}, "1787874000": {"up": 1, "total": 1}}, "mailcow": {"1787873700": {"up": 1, "total": 1}, "1787874000": {"up": 1, "total": 1}}, "ktv": {"1787874000": {"up": 1, "total": 1}}};
+        const rawHistory1d = {"ktv": {"2026-08-27": {"up": 15, "total": 15}}, "jellyfin": {"2026-08-27": {"up": 0, "total": 2}}, "immich": {"2026-08-27": {"up": 0, "total": 2}}, "outline": {"2026-08-27": {"up": 2, "total": 2}}, "mailcow": {"2026-08-27": {"up": 2, "total": 2}}};
         let currentTimeframe = '90j';
 
         function formatDuration(diff) {
