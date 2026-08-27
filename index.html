@@ -188,7 +188,7 @@
     <div class="container">
         <div class="header">
             <h1>Statut des Services</h1>
-            <p>Dernière vérification : 27/08/2026 à 23:11:04</p>
+            <p>Dernière vérification : 27/08/2026 à 23:12:04</p>
         </div>
 
         <div class="record-card">
@@ -200,8 +200,8 @@
             </div>
         </div>
 
-        <div class="global-banner down">
-            Perturbation sur un ou plusieurs services
+        <div class="global-banner up">
+            Tous les systèmes sont opérationnels
         </div>
 
         <div class="controls">
@@ -215,75 +215,21 @@
 
         <div id="services-list">
 
-            <div class="service-card" data-service-id="jellyfin">
+            <div class="service-card" data-service-id="ktv">
                 <div class="service-header">
                     <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>Jellyfin ↗</span>
+                        <img src="https://example.com/img/icons/ktv.webp" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>k.tv ↗</span>
                     </a>
                     <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-jellyfin" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
-                        <span class="badge down">Inaccessible</span>
-                    </div>
-                </div>
-                <div class="timer-info">Hors ligne depuis : <strong data-since="1787872203">--</strong></div>
-                <div class="history-bars" id="bars-jellyfin"></div>
-                <div class="history-legend">
-                    <span id="legend-start-jellyfin">--</span>
-                    <span>Aujourd'hui</span>
-                </div>
-            </div>
-            <div class="service-card" data-service-id="immich">
-                <div class="service-header">
-                    <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/immich.png" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>Immich ↗</span>
-                    </a>
-                    <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-immich" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
-                        <span class="badge down">Inaccessible</span>
-                    </div>
-                </div>
-                <div class="timer-info">Hors ligne depuis : <strong data-since="1787872203">--</strong></div>
-                <div class="history-bars" id="bars-immich"></div>
-                <div class="history-legend">
-                    <span id="legend-start-immich">--</span>
-                    <span>Aujourd'hui</span>
-                </div>
-            </div>
-            <div class="service-card" data-service-id="outline">
-                <div class="service-header">
-                    <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/outline.png" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>Outline Wiki ↗</span>
-                    </a>
-                    <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-outline" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="uptime-pct" id="uptime-ktv" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
                         <span class="badge up">En ligne</span>
                     </div>
                 </div>
-                <div class="timer-info">En ligne depuis : <strong data-since="1787872203">--</strong></div>
-                <div class="history-bars" id="bars-outline"></div>
+                <div class="timer-info">En ligne depuis : <strong data-since="1787872323">--</strong></div>
+                <div class="history-bars" id="bars-ktv"></div>
                 <div class="history-legend">
-                    <span id="legend-start-outline">--</span>
-                    <span>Aujourd'hui</span>
-                </div>
-            </div>
-            <div class="service-card" data-service-id="mailcow">
-                <div class="service-header">
-                    <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mailcow.png" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>Serveur Mail ↗</span>
-                    </a>
-                    <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-mailcow" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
-                        <span class="badge up">En ligne</span>
-                    </div>
-                </div>
-                <div class="timer-info">En ligne depuis : <strong data-since="1787872203">--</strong></div>
-                <div class="history-bars" id="bars-mailcow"></div>
-                <div class="history-legend">
-                    <span id="legend-start-mailcow">--</span>
+                    <span id="legend-start-ktv">--</span>
                     <span>Aujourd'hui</span>
                 </div>
             </div>
@@ -292,7 +238,7 @@
     </div>
 
     <script>
-        const rawHistory = {"jellyfin": {"2026-08-27": {"up": 3, "total": 5}}, "immich": {"2026-08-27": {"up": 0, "total": 2}}, "outline": {"2026-08-27": {"up": 2, "total": 2}}, "mailcow": {"2026-08-27": {"up": 2, "total": 2}}};
+        const rawHistory = {"jellyfin": {"2026-08-27": {"up": 3, "total": 5}}, "immich": {"2026-08-27": {"up": 0, "total": 2}}, "outline": {"2026-08-27": {"up": 2, "total": 2}}, "mailcow": {"2026-08-27": {"up": 2, "total": 2}}, "ktv": {"2026-08-27": {"up": 1, "total": 1}}};
         let currentDays = 90;
 
         function formatDuration(diff) {
