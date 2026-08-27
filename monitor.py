@@ -8,10 +8,7 @@ from datetime import datetime
 
 # --- CONFIGURATION DES SERVICES À SURVEILLER ---
 SERVICES = [
-    {"id": "jellyfin", "name": "Jellyfin", "url": "https://example.com"},
-    {"id": "immich", "name": "Immich", "url": "https://example.com"},
-    {"id": "outline", "name": "Outline Wiki", "url": "https://example.com"},
-    {"id": "mailcow", "name": "Serveur Mail", "url": "https://example.com"},
+    {"id": "jellyfin", "name": "K.tv", "url": "https://example.com"},
 ]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
