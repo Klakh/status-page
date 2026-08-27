@@ -12,9 +12,9 @@
             --text-main: #f0f6fc;
             --text-muted: #8b949e;
             --up: #238636;
-            --up-hover: #2ea043;
             --down: #da3633;
             --partial: #d29922;
+            --accent-gold: #f2cc60;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -27,16 +27,31 @@
         }
         .container { width: 100%; max-width: 760px; }
         
-        .header { text-align: center; margin-bottom: 2rem; }
+        .header { text-align: center; margin-bottom: 1.5rem; }
         .header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
         .header p { color: var(--text-muted); font-size: 0.875rem; }
+
+        .record-card {
+            background: rgba(210, 153, 34, 0.08);
+            border: 1px solid rgba(210, 153, 34, 0.3);
+            border-radius: 8px;
+            padding: 0.85rem 1.25rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .record-icon { font-size: 1.25rem; }
+        .record-content { line-height: 1.4; color: var(--text-main); }
+        .record-content strong { color: var(--accent-gold); }
 
         .global-banner {
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.75rem;
-            padding: 1rem;
+            padding: 0.85rem;
             border-radius: 8px;
             font-weight: 600;
             margin-bottom: 2rem;
@@ -86,7 +101,21 @@
             align-items: center;
             margin-bottom: 0.75rem;
         }
-        .service-title { font-weight: 600; font-size: 1.1rem; text-decoration: none; color: var(--text-main); }
+        .service-title {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+            text-decoration: none;
+            color: var(--text-main);
+        }
+        .service-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 4px;
+            object-fit: contain;
+        }
         .service-meta { display: flex; align-items: center; gap: 0.75rem; }
         .badge {
             font-size: 0.75rem;
@@ -159,11 +188,20 @@
     <div class="container">
         <div class="header">
             <h1>Statut des Services</h1>
-            <p>Dernière vérification : 27/08/2026 à 23:06:03</p>
+            <p>Dernière vérification : 27/08/2026 à 23:10:04</p>
         </div>
 
-        <div class="global-banner up">
-            Tous les systèmes sont opérationnels
+        <div class="record-card">
+            <span class="record-icon">🏆</span>
+            <div class="record-content">
+                Service en ligne le plus longtemps : <strong>Jellyfin</strong>, 
+                up pendant <strong id="record-timer" data-start="1787871963" data-end="1787872203">--</strong>, 
+                du 27/08/2026 à 27/08/2026 à 23:10.
+            </div>
+        </div>
+
+        <div class="global-banner down">
+            Perturbation sur un ou plusieurs services
         </div>
 
         <div class="controls">
@@ -179,16 +217,73 @@
 
             <div class="service-card" data-service-id="jellyfin">
                 <div class="service-header">
-                    <a href="https://example.com" target="_blank" class="service-title">K.tv ↗</a>
+                    <a href="https://example.com" target="_blank" class="service-title">
+                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>Jellyfin ↗</span>
+                    </a>
                     <div class="service-meta">
                         <span class="uptime-pct" id="uptime-jellyfin" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
-                        <span class="badge up">En ligne</span>
+                        <span class="badge down">Inaccessible</span>
                     </div>
                 </div>
-                <div class="timer-info">En ligne depuis : <strong data-since="1787871963">--</strong></div>
+                <div class="timer-info">Hors ligne depuis : <strong data-since="1787872203">--</strong></div>
                 <div class="history-bars" id="bars-jellyfin"></div>
                 <div class="history-legend">
                     <span id="legend-start-jellyfin">--</span>
+                    <span>Aujourd'hui</span>
+                </div>
+            </div>
+            <div class="service-card" data-service-id="immich">
+                <div class="service-header">
+                    <a href="https://example.com" target="_blank" class="service-title">
+                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/immich.png" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>Immich ↗</span>
+                    </a>
+                    <div class="service-meta">
+                        <span class="uptime-pct" id="uptime-immich" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="badge down">Inaccessible</span>
+                    </div>
+                </div>
+                <div class="timer-info">Hors ligne depuis : <strong data-since="1787872203">--</strong></div>
+                <div class="history-bars" id="bars-immich"></div>
+                <div class="history-legend">
+                    <span id="legend-start-immich">--</span>
+                    <span>Aujourd'hui</span>
+                </div>
+            </div>
+            <div class="service-card" data-service-id="outline">
+                <div class="service-header">
+                    <a href="https://example.com" target="_blank" class="service-title">
+                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/outline.png" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>Outline Wiki ↗</span>
+                    </a>
+                    <div class="service-meta">
+                        <span class="uptime-pct" id="uptime-outline" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="badge up">En ligne</span>
+                    </div>
+                </div>
+                <div class="timer-info">En ligne depuis : <strong data-since="1787872203">--</strong></div>
+                <div class="history-bars" id="bars-outline"></div>
+                <div class="history-legend">
+                    <span id="legend-start-outline">--</span>
+                    <span>Aujourd'hui</span>
+                </div>
+            </div>
+            <div class="service-card" data-service-id="mailcow">
+                <div class="service-header">
+                    <a href="https://example.com" target="_blank" class="service-title">
+                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mailcow.png" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>Serveur Mail ↗</span>
+                    </a>
+                    <div class="service-meta">
+                        <span class="uptime-pct" id="uptime-mailcow" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="badge up">En ligne</span>
+                    </div>
+                </div>
+                <div class="timer-info">En ligne depuis : <strong data-since="1787872203">--</strong></div>
+                <div class="history-bars" id="bars-mailcow"></div>
+                <div class="history-legend">
+                    <span id="legend-start-mailcow">--</span>
                     <span>Aujourd'hui</span>
                 </div>
             </div>
@@ -197,13 +292,20 @@
     </div>
 
     <script>
-        const rawHistory = {"jellyfin": {"2026-08-27": {"up": 1, "total": 1}}};
+        const rawHistory = {"jellyfin": {"2026-08-27": {"up": 3, "total": 4}}, "immich": {"2026-08-27": {"up": 0, "total": 1}}, "outline": {"2026-08-27": {"up": 1, "total": 1}}, "mailcow": {"2026-08-27": {"up": 1, "total": 1}}};
         let currentDays = 90;
 
-        function formatDaysAgo(days) {
-            const d = new Date();
-            d.setDate(d.getDate() - days);
-            return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+        function formatDuration(diff) {
+            const days = Math.floor(diff / 86400);
+            const hours = Math.floor((diff % 86400) / 3600);
+            const mins = Math.floor((diff % 3600) / 60);
+            const secs = diff % 60;
+            
+            let res = "";
+            if (days > 0) res += days + "j ";
+            if (hours > 0 || days > 0) res += hours + "h ";
+            res += mins + "m " + secs + "s";
+            return res;
         }
 
         function setTimeframe(days) {
@@ -263,22 +365,23 @@
 
         function updateTimers() {
             const now = Math.floor(Date.now() / 1000);
+            
+            // Mis à jour des compteurs individuels par service
             document.querySelectorAll('[data-since]').forEach(el => {
                 const since = parseInt(el.getAttribute('data-since'));
                 const diff = Math.max(0, now - since);
-                
-                const days = Math.floor(diff / 86400);
-                const hours = Math.floor((diff % 86400) / 3600);
-                const mins = Math.floor((diff % 3600) / 60);
-                const secs = diff % 60;
-                
-                let res = "";
-                if (days > 0) res += days + "j ";
-                if (hours > 0 || days > 0) res += hours + "h ";
-                res += mins + "m " + secs + "s";
-                
-                el.innerText = res;
+                el.innerText = formatDuration(diff);
             });
+
+            // Mis à jour du compteur du record global
+            const recEl = document.getElementById('record-timer');
+            if (recEl) {
+                const start = parseInt(recEl.getAttribute('data-start'));
+                const endAttr = recEl.getAttribute('data-end');
+                const end = endAttr ? parseInt(endAttr) : now;
+                const diff = Math.max(0, end - start);
+                recEl.innerText = formatDuration(diff);
+            }
         }
 
         setInterval(updateTimers, 1000);

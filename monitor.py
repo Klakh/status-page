@@ -8,7 +8,30 @@ from datetime import datetime, date, timedelta
 
 # --- CONFIGURATION DES SERVICES ---
 SERVICES = [
-    {"id": "jellyfin", "name": "K.tv", "url": "https://example.com"},
+    {
+        "id": "jellyfin",
+        "name": "Jellyfin",
+        "url": "https://example.com",
+        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png"
+    },
+    {
+        "id": "immich",
+        "name": "Immich",
+        "url": "https://example.com",
+        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/immich.png"
+    },
+    {
+        "id": "outline",
+        "name": "Outline Wiki",
+        "url": "https://example.com",
+        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/outline.png"
+    },
+    {
+        "id": "mailcow",
+        "name": "Serveur Mail",
+        "url": "https://example.com",
+        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mailcow.png"
+    },
 ]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,17 +60,24 @@ def save_state(state):
         json.dump(state, f, indent=2)
 
 def clean_old_history(history):
-    # Conserve 90 jours d'historique maximum
     today = date.today()
     cutoff = (today - timedelta(days=95)).strftime("%Y-%m-%d")
     return {d: v for d, v in history.items() if d >= cutoff}
 
-def generate_html(services_data, global_status, history_data):
+def generate_html(services_data, global_status, history_data, record_data):
     now_str = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
     history_json = json.dumps(history_data)
     
     global_banner_class = "up" if global_status else "down"
     global_banner_text = "Tous les systèmes sont opérationnels" if global_status else "Perturbation sur un ou plusieurs services"
+
+    # Formatage de l'affichage du record
+    rec_name = record_data.get("name", "N/A")
+    rec_start_ts = record_data.get("start_ts", 0)
+    rec_end_ts = record_data.get("end_ts")
+    
+    start_dt_str = datetime.fromtimestamp(rec_start_ts).strftime("%d/%m/%Y") if rec_start_ts else "--"
+    end_dt_str = datetime.fromtimestamp(rec_end_ts).strftime("%d/%m/%Y à %H:%M") if rec_end_ts else "maintenant"
 
     html = f"""<!DOCTYPE html>
 <html lang="fr">
@@ -63,9 +93,9 @@ def generate_html(services_data, global_status, history_data):
             --text-main: #f0f6fc;
             --text-muted: #8b949e;
             --up: #238636;
-            --up-hover: #2ea043;
             --down: #da3633;
             --partial: #d29922;
+            --accent-gold: #f2cc60;
         }}
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
@@ -78,16 +108,31 @@ def generate_html(services_data, global_status, history_data):
         }}
         .container {{ width: 100%; max-width: 760px; }}
         
-        .header {{ text-align: center; margin-bottom: 2rem; }}
+        .header {{ text-align: center; margin-bottom: 1.5rem; }}
         .header h1 {{ font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }}
         .header p {{ color: var(--text-muted); font-size: 0.875rem; }}
+
+        .record-card {{
+            background: rgba(210, 153, 34, 0.08);
+            border: 1px solid rgba(210, 153, 34, 0.3);
+            border-radius: 8px;
+            padding: 0.85rem 1.25rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }}
+        .record-icon {{ font-size: 1.25rem; }}
+        .record-content {{ line-height: 1.4; color: var(--text-main); }}
+        .record-content strong {{ color: var(--accent-gold); }}
 
         .global-banner {{
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.75rem;
-            padding: 1rem;
+            padding: 0.85rem;
             border-radius: 8px;
             font-weight: 600;
             margin-bottom: 2rem;
@@ -137,7 +182,21 @@ def generate_html(services_data, global_status, history_data):
             align-items: center;
             margin-bottom: 0.75rem;
         }}
-        .service-title {{ font-weight: 600; font-size: 1.1rem; text-decoration: none; color: var(--text-main); }}
+        .service-title {{
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+            text-decoration: none;
+            color: var(--text-main);
+        }}
+        .service-icon {{
+            width: 22px;
+            height: 22px;
+            border-radius: 4px;
+            object-fit: contain;
+        }}
         .service-meta {{ display: flex; align-items: center; gap: 0.75rem; }}
         .badge {{
             font-size: 0.75rem;
@@ -213,6 +272,15 @@ def generate_html(services_data, global_status, history_data):
             <p>Dernière vérification : {now_str}</p>
         </div>
 
+        <div class="record-card">
+            <span class="record-icon">🏆</span>
+            <div class="record-content">
+                Service en ligne le plus longtemps : <strong>{rec_name}</strong>, 
+                up pendant <strong id="record-timer" data-start="{rec_start_ts}" data-end="{rec_end_ts if rec_end_ts else ''}">--</strong>, 
+                du {start_dt_str} à {end_dt_str}.
+            </div>
+        </div>
+
         <div class="global-banner {global_banner_class}">
             {global_banner_text}
         </div>
@@ -236,7 +304,10 @@ def generate_html(services_data, global_status, history_data):
         html += f"""
             <div class="service-card" data-service-id="{s['id']}">
                 <div class="service-header">
-                    <a href="{s['url']}" target="_blank" class="service-title">{s['name']} ↗</a>
+                    <a href="{s['url']}" target="_blank" class="service-title">
+                        <img src="{s['icon']}" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>{s['name']} ↗</span>
+                    </a>
                     <div class="service-meta">
                         <span class="uptime-pct" id="uptime-{s['id']}" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
                         <span class="badge {status_class}">{status_label}</span>
@@ -259,10 +330,17 @@ def generate_html(services_data, global_status, history_data):
         const rawHistory = {history_json};
         let currentDays = 90;
 
-        function formatDaysAgo(days) {{
-            const d = new Date();
-            d.setDate(d.getDate() - days);
-            return d.toLocaleDateString('fr-FR', {{ day: 'numeric', month: 'short' }});
+        function formatDuration(diff) {{
+            const days = Math.floor(diff / 86400);
+            const hours = Math.floor((diff % 86400) / 3600);
+            const mins = Math.floor((diff % 3600) / 60);
+            const secs = diff % 60;
+            
+            let res = "";
+            if (days > 0) res += days + "j ";
+            if (hours > 0 || days > 0) res += hours + "h ";
+            res += mins + "m " + secs + "s";
+            return res;
         }}
 
         function setTimeframe(days) {{
@@ -322,22 +400,23 @@ def generate_html(services_data, global_status, history_data):
 
         function updateTimers() {{
             const now = Math.floor(Date.now() / 1000);
+            
+            // Mis à jour des compteurs individuels par service
             document.querySelectorAll('[data-since]').forEach(el => {{
                 const since = parseInt(el.getAttribute('data-since'));
                 const diff = Math.max(0, now - since);
-                
-                const days = Math.floor(diff / 86400);
-                const hours = Math.floor((diff % 86400) / 3600);
-                const mins = Math.floor((diff % 3600) / 60);
-                const secs = diff % 60;
-                
-                let res = "";
-                if (days > 0) res += days + "j ";
-                if (hours > 0 || days > 0) res += hours + "h ";
-                res += mins + "m " + secs + "s";
-                
-                el.innerText = res;
+                el.innerText = formatDuration(diff);
             }});
+
+            // Mis à jour du compteur du record global
+            const recEl = document.getElementById('record-timer');
+            if (recEl) {{
+                const start = parseInt(recEl.getAttribute('data-start'));
+                const endAttr = recEl.getAttribute('data-end');
+                const end = endAttr ? parseInt(endAttr) : now;
+                const diff = Math.max(0, end - start);
+                recEl.innerText = formatDuration(diff);
+            }}
         }}
 
         setInterval(updateTimers, 1000);
@@ -356,6 +435,7 @@ def main():
     
     old_state = load_state()
     history = clean_old_history(old_state.get("history", {}))
+    record = old_state.get("record", {})
     
     new_state = {}
     has_changed = False
@@ -376,6 +456,18 @@ def main():
 
         if prev_status != status_str:
             has_changed = True
+            
+            # Si le service vient de tomber (UP -> DOWN), on vérifie si sa session bat le record
+            if prev_status == "UP":
+                finished_dur = now_ts - last_change
+                if finished_dur >= record.get("duration", 0):
+                    record = {
+                        "name": s["name"],
+                        "start_ts": last_change,
+                        "end_ts": now_ts,
+                        "duration": finished_dur
+                    }
+            
             last_change = now_ts
 
         new_state[sid] = {
@@ -398,21 +490,42 @@ def main():
             "id": sid,
             "name": s["name"],
             "url": s["url"],
+            "icon": s.get("icon", ""),
             "status": status_str,
             "last_change": last_change
         })
+
+    # Évaluation des records en cours pour tous les services actuellement UP
+    for s in SERVICES:
+        sid = s["id"]
+        if new_state[sid]["status"] == "UP":
+            start_ts = new_state[sid]["last_change"]
+            current_dur = now_ts - start_ts
+            
+            # Si le service qui détient le record est celui-ci et qu'il est toujours en cours
+            if record.get("name") == s["name"] and record.get("end_ts") is None:
+                record["duration"] = current_dur
+                record["start_ts"] = start_ts
+            elif current_dur > record.get("duration", 0):
+                record = {
+                    "name": s["name"],
+                    "start_ts": start_ts,
+                    "end_ts": None,
+                    "duration": current_dur
+                }
 
     # Sauvegarde globale dans le JSON
     save_data = {
         "services": new_state,
         "history": history,
+        "record": record,
         "_meta": old_state.get("_meta", {})
     }
 
     # Génération du fichier HTML complet
-    generate_html(services_output, all_up, history)
+    generate_html(services_output, all_up, history, record)
 
-    # Stratégie de push Git : en cas de changement OU heartbeat 1h
+    # Stratégie de push Git
     last_push = old_state.get("_meta", {}).get("last_push", 0)
     should_push = has_changed or (now_ts - last_push >= 3600)
 
