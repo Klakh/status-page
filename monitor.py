@@ -191,7 +191,33 @@ def generate_html(services_data, global_status, history_data, record_data):
         .badge.down {{ background: rgba(218, 54, 51, 0.2); color: #f85149; border: 1px solid var(--down); }}
 
         .timer-info {{ font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; }}
-        
+	.live-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: #3fb950;
+            background: rgba(53, 134, 54, 0.1);
+            border: 1px solid rgba(53, 134, 54, 0.3);
+            padding: 0.3rem 0.75rem;
+            border-radius: 20px;
+            margin-top: 0.4rem;
+            margin-bottom: 0.6rem;
+        }
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #3fb950;
+            border-radius: 50%;
+            box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }
+            70% { box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0); }
+        }
+
         .history-bars {{
             display: flex;
             gap: 3px;
@@ -249,9 +275,13 @@ def generate_html(services_data, global_status, history_data, record_data):
 </head>
 <body>
     <div class="container">
-        <div class="header">
+	<div class="header">
             <h1>Statut des Services</h1>
-            <p>Dernière vérification : {now_str}</p>
+            <div class="live-status">
+                <span class="pulse-dot"></span>
+                <span>Monitoring actif — Vérifications toutes les minutes</span>
+            </div>
+            <p id="last-update-banner">Dernier rapport généré : <strong id="last-update-timer" data-timestamp="{now_ts}">--</strong></p>
         </div>
 
         <div class="record-card">
@@ -382,7 +412,23 @@ def generate_html(services_data, global_status, history_data, record_data):
 
         function updateTimers() {{
             const now = Math.floor(Date.now() / 1000);
-            
+
+	    // Calcul relatif du dernier rapport généré
+            const lastUpdateEl = document.getElementById('last-update-timer');
+            if (lastUpdateEl) {
+                const genTs = parseInt(lastUpdateEl.getAttribute('data-timestamp'));
+                const diff = Math.max(0, now - genTs);
+                const dt = new Date(genTs * 1000);
+                const exactTime = dt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                
+                if (diff < 60) {
+                    lastUpdateEl.innerText = `à l'instant (${exactTime})`;
+                } else {
+                    const mins = Math.floor(diff / 60);
+                    lastUpdateEl.innerText = `il y a ${mins} min (${exactTime})`;
+                }
+            }
+
             // Mis à jour des compteurs individuels par service
             document.querySelectorAll('[data-since]').forEach(el => {{
                 const since = parseInt(el.getAttribute('data-since'));
