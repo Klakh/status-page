@@ -5,39 +5,262 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>État des Services — Keeklah</title>
     <style>
-        :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --muted: #94a3b8; --up: #22c55e; --down: #ef4444; }
-        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 2rem; display: flex; justify-content: center; }
-        .container { width: 100%; max-width: 650px; }
-        h1 { font-size: 1.5rem; margin-bottom: 0.5rem; text-align: center; }
-        .subtitle { color: var(--muted); text-align: center; font-size: 0.875rem; margin-bottom: 2rem; }
-        .card { background: var(--card); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between; border: 1px solid #334155; }
-        .info { display: flex; flex-direction: column; gap: 0.25rem; }
-        .name { font-weight: 600; font-size: 1.1rem; }
-        .timer { font-size: 0.85rem; color: var(--muted); }
-        .badge { padding: 0.35rem 0.75rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; }
-        .badge.up { background: rgba(34, 197, 94, 0.15); color: var(--up); border: 1px solid var(--up); }
-        .badge.down { background: rgba(239, 68, 68, 0.15); color: var(--down); border: 1px solid var(--down); }
-        .footer { text-align: center; margin-top: 2rem; font-size: 0.75rem; color: var(--muted); }
+        :root {
+            --bg: #0d1117;
+            --card-bg: #161b22;
+            --border: #30363d;
+            --text-main: #f0f6fc;
+            --text-muted: #8b949e;
+            --up: #238636;
+            --up-hover: #2ea043;
+            --down: #da3633;
+            --partial: #d29922;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            padding: 2rem 1rem;
+            display: flex;
+            justify-content: center;
+        }
+        .container { width: 100%; max-width: 760px; }
+        
+        .header { text-align: center; margin-bottom: 2rem; }
+        .header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+        .header p { color: var(--text-muted); font-size: 0.875rem; }
+
+        .global-banner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            border-radius: 8px;
+            font-weight: 600;
+            margin-bottom: 2rem;
+            border: 1px solid transparent;
+        }
+        .global-banner.up { background: rgba(35, 134, 54, 0.15); border-color: var(--up); color: #3fb950; }
+        .global-banner.down { background: rgba(218, 54, 51, 0.15); border-color: var(--down); color: #f85149; }
+        
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .timeframe-selector {
+            display: flex;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 3px;
+        }
+        .tf-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            padding: 0.35rem 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .tf-btn.active { background: #21262d; color: var(--text-main); }
+
+        .service-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 1.25rem;
+        }
+        .service-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        .service-title { font-weight: 600; font-size: 1.1rem; text-decoration: none; color: var(--text-main); }
+        .service-meta { display: flex; align-items: center; gap: 0.75rem; }
+        .badge {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.25rem 0.6rem;
+            border-radius: 12px;
+            text-transform: uppercase;
+        }
+        .badge.up { background: rgba(35, 134, 54, 0.2); color: #3fb950; border: 1px solid var(--up); }
+        .badge.down { background: rgba(218, 54, 51, 0.2); color: #f85149; border: 1px solid var(--down); }
+
+        .timer-info { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; }
+        
+        .history-bars {
+            display: flex;
+            gap: 3px;
+            height: 28px;
+            align-items: flex-end;
+            margin-bottom: 0.5rem;
+        }
+        .bar {
+            flex: 1;
+            height: 100%;
+            border-radius: 2px;
+            background-color: var(--up);
+            position: relative;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+        .bar:hover { opacity: 0.8; }
+        .bar.down { background-color: var(--down); }
+        .bar.partial { background-color: var(--partial); }
+        .bar.nodata { background-color: #21262d; }
+
+        .history-legend {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .tooltip {
+            position: absolute;
+            bottom: 35px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #21262d;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            padding: 0.4rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            pointer-events: none;
+            display: none;
+            z-index: 10;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .bar:hover .tooltip { display: block; }
+
+        .footer {
+            text-align: center;
+            margin-top: 2rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Statut des Services</h1>
-        <p class="subtitle">Dernière mise à jour du script : 27/08/2026 à 23:05:03</p>
-        <div id="services">
+        <div class="header">
+            <h1>Statut des Services</h1>
+            <p>Dernière vérification : 27/08/2026 à 23:06:03</p>
+        </div>
 
-            <div class="card">
-                <div class="info">
-                    <span class="name">K.tv</span>
-                    <span class="timer">En ligne depuis : <strong data-since="1787871543">--</strong></span>
-                </div>
-                <span class="badge up">En ligne</span>
+        <div class="global-banner up">
+            Tous les systèmes sont opérationnels
+        </div>
+
+        <div class="controls">
+            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">Historique de disponibilité</span>
+            <div class="timeframe-selector">
+                <button class="tf-btn" onclick="setTimeframe(7)">7j</button>
+                <button class="tf-btn" onclick="setTimeframe(30)">30j</button>
+                <button class="tf-btn active" onclick="setTimeframe(90)">90j</button>
             </div>
         </div>
-        <div class="footer">Monitoring par Raspberry Pi 1 B+</div>
+
+        <div id="services-list">
+
+            <div class="service-card" data-service-id="jellyfin">
+                <div class="service-header">
+                    <a href="https://example.com" target="_blank" class="service-title">K.tv ↗</a>
+                    <div class="service-meta">
+                        <span class="uptime-pct" id="uptime-jellyfin" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="badge up">En ligne</span>
+                    </div>
+                </div>
+                <div class="timer-info">En ligne depuis : <strong data-since="1787871963">--</strong></div>
+                <div class="history-bars" id="bars-jellyfin"></div>
+                <div class="history-legend">
+                    <span id="legend-start-jellyfin">--</span>
+                    <span>Aujourd'hui</span>
+                </div>
+            </div>
+        </div>
+        <div class="footer">Monitoring autonome par Raspberry Pi 1 B+</div>
     </div>
 
     <script>
+        const rawHistory = {"jellyfin": {"2026-08-27": {"up": 1, "total": 1}}};
+        let currentDays = 90;
+
+        function formatDaysAgo(days) {
+            const d = new Date();
+            d.setDate(d.getDate() - days);
+            return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+        }
+
+        function setTimeframe(days) {
+            currentDays = days;
+            document.querySelectorAll('.tf-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.innerText === days + 'j');
+            });
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const today = new Date();
+            
+            document.querySelectorAll('.service-card').forEach(card => {
+                const sid = card.getAttribute('data-service-id');
+                const container = document.getElementById('bars-' + sid);
+                const legendStart = document.getElementById('legend-start-' + sid);
+                const uptimeLabel = document.getElementById('uptime-' + sid);
+                
+                container.innerHTML = '';
+                legendStart.innerText = "Il y a " + currentDays + " jours";
+
+                const sHistory = rawHistory[sid] || {};
+                let totalUp = 0;
+                let totalChecks = 0;
+
+                for (let i = currentDays - 1; i >= 0; i--) {
+                    const d = new Date();
+                    d.setDate(today.getDate() - i);
+                    const dateStr = d.toISOString().split('T')[0];
+                    const formattedDate = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+                    const dayData = sHistory[dateStr] || { up: 0, total: 0 };
+                    const bar = document.createElement('div');
+                    bar.className = 'bar';
+
+                    if (dayData.total === 0) {
+                        bar.classList.add('nodata');
+                        bar.innerHTML = `<div class="tooltip">${formattedDate}<br>Aucune donnée</div>`;
+                    } else {
+                        totalUp += dayData.up;
+                        totalChecks += dayData.total;
+                        const pct = Math.round((dayData.up / dayData.total) * 100);
+                        
+                        if (pct < 95 && pct > 0) bar.classList.add('partial');
+                        else if (pct === 0) bar.classList.add('down');
+
+                        bar.innerHTML = `<div class="tooltip">${formattedDate}<br><strong>${pct}% d'uptime</strong> (${dayData.up}/${dayData.total} checks)</div>`;
+                    }
+                    container.appendChild(bar);
+                }
+
+                const globalPct = totalChecks > 0 ? ((totalUp / totalChecks) * 100).toFixed(1) : "100.0";
+                uptimeLabel.innerText = globalPct + "%";
+            });
+        }
+
         function updateTimers() {
             const now = Math.floor(Date.now() / 1000);
             document.querySelectorAll('[data-since]').forEach(el => {
@@ -57,8 +280,10 @@
                 el.innerText = res;
             });
         }
+
         setInterval(updateTimers, 1000);
         updateTimers();
+        renderHistory();
     </script>
 </body>
 </html>
