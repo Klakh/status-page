@@ -9,10 +9,28 @@ from datetime import datetime, date, timedelta
 # --- CONFIGURATION DES SERVICES ---
 SERVICES = [
     {
-        "id": "ktv",
-        "name": "k.tv",
+        "id": "jellyfin",
+        "name": "Jellyfin",
         "url": "https://example.com",
-        "icon": "https://example.com/img/icons/ktv.webp"
+        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png"
+    },
+    {
+        "id": "immich",
+        "name": "Immich",
+        "url": "https://example.com",
+        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/immich.png"
+    },
+    {
+        "id": "outline",
+        "name": "Outline Wiki",
+        "url": "https://example.com",
+        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/outline.png"
+    },
+    {
+        "id": "mailcow",
+        "name": "Serveur Mail",
+        "url": "https://example.com",
+        "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mailcow.png"
     },
 ]
 
@@ -41,19 +59,28 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
 
-def clean_old_history(history):
-    today = date.today()
-    cutoff = (today - timedelta(days=95)).strftime("%Y-%m-%d")
-    return {d: v for d, v in history.items() if d >= cutoff}
+def clean_old_history(history_5m, history_1d, now_ts):
+    # Rétention 5 min : 25 heures max
+    cutoff_5m = now_ts - 90000
+    new_5m = {}
+    for sid, slots in history_5m.items():
+        new_5m[sid] = {k: v for k, v in slots.items() if int(k) >= cutoff_5m}
 
-def generate_html(services_data, global_status, history_data, record_data):
-    now_str = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
-    history_json = json.dumps(history_data)
+    # Rétention quotidienne : 95 jours max
+    cutoff_1d = (date.today() - timedelta(days=95)).strftime("%Y-%m-%d")
+    new_1d = {}
+    for sid, slots in history_1d.items():
+        new_1d[sid] = {k: v for k, v in slots.items() if k >= cutoff_1d}
+
+    return new_5m, new_1d
+
+def generate_html(services_data, global_status, history_5m_data, history_1d_data, record_data, now_ts):
+    history_5m_json = json.dumps(history_5m_data)
+    history_1d_json = json.dumps(history_1d_data)
     
     global_banner_class = "up" if global_status else "down"
     global_banner_text = "Tous les systèmes sont opérationnels" if global_status else "Perturbation sur un ou plusieurs services"
 
-    # Formatage de l'affichage du record
     rec_name = record_data.get("name", "N/A")
     rec_start_ts = record_data.get("start_ts", 0)
     rec_end_ts = record_data.get("end_ts")
@@ -91,8 +118,35 @@ def generate_html(services_data, global_status, history_data, record_data):
         .container {{ width: 100%; max-width: 760px; }}
         
         .header {{ text-align: center; margin-bottom: 1.5rem; }}
-        .header h1 {{ font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }}
-        .header p {{ color: var(--text-muted); font-size: 0.875rem; }}
+        .header h1 {{ font-size: 1.75rem; font-weight: 700; margin-bottom: 0.4rem; }}
+        
+        .live-status {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: #3fb950;
+            background: rgba(53, 134, 54, 0.1);
+            border: 1px solid rgba(53, 134, 54, 0.3);
+            padding: 0.3rem 0.75rem;
+            border-radius: 20px;
+            margin-top: 0.4rem;
+            margin-bottom: 0.5rem;
+        }}
+        .pulse-dot {{
+            width: 8px;
+            height: 8px;
+            background-color: #3fb950;
+            border-radius: 50%;
+            box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7);
+            animation: pulse 2s infinite;
+        }}
+        @keyframes pulse {{
+            0% {{ box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }}
+            70% {{ box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); }}
+            100% {{ box-shadow: 0 0 0 0 rgba(63, 185, 80, 0); }}
+        }}
+        .header p {{ color: var(--text-muted); font-size: 0.85rem; }}
 
         .record-card {{
             background: rgba(210, 153, 34, 0.08);
@@ -142,7 +196,7 @@ def generate_html(services_data, global_status, history_data, record_data):
             background: none;
             border: none;
             color: var(--text-muted);
-            padding: 0.35rem 0.75rem;
+            padding: 0.35rem 0.65rem;
             font-size: 0.8rem;
             font-weight: 600;
             cursor: pointer;
@@ -191,33 +245,7 @@ def generate_html(services_data, global_status, history_data, record_data):
         .badge.down {{ background: rgba(218, 54, 51, 0.2); color: #f85149; border: 1px solid var(--down); }}
 
         .timer-info {{ font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; }}
-	.live-status {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.8rem;
-            color: #3fb950;
-            background: rgba(53, 134, 54, 0.1);
-            border: 1px solid rgba(53, 134, 54, 0.3);
-            padding: 0.3rem 0.75rem;
-            border-radius: 20px;
-            margin-top: 0.4rem;
-            margin-bottom: 0.6rem;
-        }
-        .pulse-dot {
-            width: 8px;
-            height: 8px;
-            background-color: #3fb950;
-            border-radius: 50%;
-            box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7);
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }
-            70% { box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0); }
-        }
-
+        
         .history-bars {{
             display: flex;
             gap: 3px;
@@ -275,7 +303,7 @@ def generate_html(services_data, global_status, history_data, record_data):
 </head>
 <body>
     <div class="container">
-	<div class="header">
+        <div class="header">
             <h1>Statut des Services</h1>
             <div class="live-status">
                 <span class="pulse-dot"></span>
@@ -300,9 +328,11 @@ def generate_html(services_data, global_status, history_data, record_data):
         <div class="controls">
             <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">Historique de disponibilité</span>
             <div class="timeframe-selector">
-                <button class="tf-btn" onclick="setTimeframe(7)">7j</button>
-                <button class="tf-btn" onclick="setTimeframe(30)">30j</button>
-                <button class="tf-btn active" onclick="setTimeframe(90)">90j</button>
+                <button class="tf-btn" onclick="setTimeframe('1h')">1h</button>
+                <button class="tf-btn" onclick="setTimeframe('24h')">24h</button>
+                <button class="tf-btn" onclick="setTimeframe('7j')">7j</button>
+                <button class="tf-btn" onclick="setTimeframe('30j')">30j</button>
+                <button class="tf-btn active" onclick="setTimeframe('90j')">90j</button>
             </div>
         </div>
 
@@ -329,7 +359,7 @@ def generate_html(services_data, global_status, history_data, record_data):
                 <div class="history-bars" id="bars-{s['id']}"></div>
                 <div class="history-legend">
                     <span id="legend-start-{s['id']}">--</span>
-                    <span>Aujourd'hui</span>
+                    <span>Maintenant</span>
                 </div>
             </div>"""
 
@@ -339,8 +369,9 @@ def generate_html(services_data, global_status, history_data, record_data):
     </div>
 
     <script>
-        const rawHistory = {history_json};
-        let currentDays = 90;
+        const rawHistory5m = {history_5m_json};
+        const rawHistory1d = {history_1d_json};
+        let currentTimeframe = '90j';
 
         function formatDuration(diff) {{
             const days = Math.floor(diff / 86400);
@@ -355,54 +386,103 @@ def generate_html(services_data, global_status, history_data, record_data):
             return res;
         }}
 
-        function setTimeframe(days) {{
-            currentDays = days;
+        function setTimeframe(tf) {{
+            currentTimeframe = tf;
             document.querySelectorAll('.tf-btn').forEach(btn => {{
-                btn.classList.toggle('active', btn.innerText === days + 'j');
+                btn.classList.toggle('active', btn.getAttribute('onclick').includes("'" + tf + "'"));
             }});
             renderHistory();
         }}
 
+        function createBar(container, data, label) {{
+            const bar = document.createElement('div');
+            bar.className = 'bar';
+
+            if (data.total === 0) {{
+                bar.classList.add('nodata');
+                bar.innerHTML = `<div class="tooltip">$${{label}}<br>Aucune donnée</div>`;
+            }} else {{
+                const pct = Math.round((data.up / data.total) * 100);
+                if (pct < 95 && pct > 0) bar.classList.add('partial');
+                else if (pct === 0) bar.classList.add('down');
+
+                bar.innerHTML = `<div class="tooltip">$${{label}}<br><strong>$${{pct}}% d'uptime</strong> ($${{data.up}}/$${{data.total}} checks)</div>`;
+            }}
+            container.appendChild(bar);
+        }}
+
         function renderHistory() {{
+            const now = Math.floor(Date.now() / 1000);
             const today = new Date();
-            
+
             document.querySelectorAll('.service-card').forEach(card => {{
                 const sid = card.getAttribute('data-service-id');
                 const container = document.getElementById('bars-' + sid);
                 const legendStart = document.getElementById('legend-start-' + sid);
                 const uptimeLabel = document.getElementById('uptime-' + sid);
-                
-                container.innerHTML = '';
-                legendStart.innerText = "Il y a " + currentDays + " jours";
 
-                const sHistory = rawHistory[sid] || {{}};
+                container.innerHTML = '';
                 let totalUp = 0;
                 let totalChecks = 0;
 
-                for (let i = currentDays - 1; i >= 0; i--) {{
-                    const d = new Date();
-                    d.setDate(today.getDate() - i);
-                    const dateStr = d.toISOString().split('T')[0];
-                    const formattedDate = d.toLocaleDateString('fr-FR', {{ day: 'numeric', month: 'long', year: 'numeric' }});
+                if (currentTimeframe === '1h') {{
+                    legendStart.innerText = "Il y a 1h";
+                    const currentSlot = Math.floor(now / 300) * 300;
+                    const sHistory = rawHistory5m[sid] || {{}};
 
-                    const dayData = sHistory[dateStr] || {{ up: 0, total: 0 }};
-                    const bar = document.createElement('div');
-                    bar.className = 'bar';
+                    for (let i = 11; i >= 0; i--) {{
+                        const slotTs = currentSlot - (i * 300);
+                        const slotData = sHistory[slotTs] || sHistory[slotTs.toString()] || {{ up: 0, total: 0 }};
+                        
+                        const startTime = new Date(slotTs * 1000).toLocaleTimeString('fr-FR', {{ hour: '2-digit', minute: '2-digit' }});
+                        const endTime = new Date((slotTs + 300) * 1000).toLocaleTimeString('fr-FR', {{ hour: '2-digit', minute: '2-digit' }});
 
-                    if (dayData.total === 0) {{
-                        bar.classList.add('nodata');
-                        bar.innerHTML = `<div class="tooltip">${{formattedDate}}<br>Aucune donnée</div>`;
-                    }} else {{
+                        createBar(container, slotData, `${{startTime}} – ${{endTime}}`);
+                        totalUp += slotData.up;
+                        totalChecks += slotData.total;
+                    }}
+                }} else if (currentTimeframe === '24h') {{
+                    legendStart.innerText = "Il y a 24h";
+                    const currentHour = Math.floor(now / 3600) * 3600;
+                    const sHistory = rawHistory5m[sid] || {{}};
+
+                    for (let i = 23; i >= 0; i--) {{
+                        const hourStart = currentHour - (i * 3600);
+                        const hourEnd = hourStart + 3600;
+                        let hUp = 0;
+                        let hTotal = 0;
+
+                        for (let t = hourStart; t < hourEnd; t += 300) {{
+                            const slotData = sHistory[t] || sHistory[t.toString()];
+                            if (slotData) {{
+                                hUp += slotData.up;
+                                hTotal += slotData.total;
+                            }}
+                        }}
+
+                        const startTime = new Date(hourStart * 1000).toLocaleTimeString('fr-FR', {{ hour: '2-digit', minute: '2-digit' }});
+                        const endTime = new Date(hourEnd * 1000).toLocaleTimeString('fr-FR', {{ hour: '2-digit', minute: '2-digit' }});
+
+                        createBar(container, {{ up: hUp, total: hTotal }}, `${{startTime}} – ${{endTime}}`);
+                        totalUp += hUp;
+                        totalChecks += hTotal;
+                    }}
+                }} else {{
+                    const days = parseInt(currentTimeframe.replace('j', ''));
+                    legendStart.innerText = `Il y a ${{days}} jours`;
+                    const sHistory = rawHistory1d[sid] || {{}};
+
+                    for (let i = days - 1; i >= 0; i--) {{
+                        const d = new Date();
+                        d.setDate(today.getDate() - i);
+                        const dateStr = d.toISOString().split('T')[0];
+                        const formattedDate = d.toLocaleDateString('fr-FR', {{ day: 'numeric', month: 'long', year: 'numeric' }});
+
+                        const dayData = sHistory[dateStr] || {{ up: 0, total: 0 }};
+                        createBar(container, dayData, formattedDate);
                         totalUp += dayData.up;
                         totalChecks += dayData.total;
-                        const pct = Math.round((dayData.up / dayData.total) * 100);
-                        
-                        if (pct < 95 && pct > 0) bar.classList.add('partial');
-                        else if (pct === 0) bar.classList.add('down');
-
-                        bar.innerHTML = `<div class="tooltip">${{formattedDate}}<br><strong>${{pct}}% d'uptime</strong> (${{dayData.up}}/${{dayData.total}} checks)</div>`;
                     }}
-                    container.appendChild(bar);
                 }}
 
                 const globalPct = totalChecks > 0 ? ((totalUp / totalChecks) * 100).toFixed(1) : "100.0";
@@ -412,31 +492,28 @@ def generate_html(services_data, global_status, history_data, record_data):
 
         function updateTimers() {{
             const now = Math.floor(Date.now() / 1000);
-
-	    // Calcul relatif du dernier rapport généré
+            
             const lastUpdateEl = document.getElementById('last-update-timer');
-            if (lastUpdateEl) {
+            if (lastUpdateEl) {{
                 const genTs = parseInt(lastUpdateEl.getAttribute('data-timestamp'));
                 const diff = Math.max(0, now - genTs);
                 const dt = new Date(genTs * 1000);
-                const exactTime = dt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                const exactTime = dt.toLocaleTimeString('fr-FR', {{ hour: '2-digit', minute: '2-digit' }});
                 
-                if (diff < 60) {
-                    lastUpdateEl.innerText = `à l'instant (${exactTime})`;
-                } else {
+                if (diff < 60) {{
+                    lastUpdateEl.innerText = `à l'instant (${{exactTime}})`;
+                }} else {{
                     const mins = Math.floor(diff / 60);
-                    lastUpdateEl.innerText = `il y a ${mins} min (${exactTime})`;
-                }
-            }
+                    lastUpdateEl.innerText = `il y a ${{mins}} min (${{exactTime}})`;
+                }}
+            }}
 
-            // Mis à jour des compteurs individuels par service
             document.querySelectorAll('[data-since]').forEach(el => {{
                 const since = parseInt(el.getAttribute('data-since'));
                 const diff = Math.max(0, now - since);
                 el.innerText = formatDuration(diff);
             }});
 
-            // Mis à jour du compteur du record global
             const recEl = document.getElementById('record-timer');
             if (recEl) {{
                 const start = parseInt(recEl.getAttribute('data-start'));
@@ -459,11 +536,17 @@ def generate_html(services_data, global_status, history_data, record_data):
 
 def main():
     now_ts = int(time.time())
+    slot_5m = str((now_ts // 300) * 300)
     today_str = date.today().strftime("%Y-%m-%d")
     
     old_state = load_state()
-    history = clean_old_history(old_state.get("history", {}))
+    
+    # Rétrocompatibilité avec l'ancien format 'history'
+    history_5m = old_state.get("history_5m", {})
+    history_1d = old_state.get("history_1d", old_state.get("history", {}))
     record = old_state.get("record", {})
+    
+    history_5m, history_1d = clean_old_history(history_5m, history_1d, now_ts)
     
     new_state = {}
     has_changed = False
@@ -485,7 +568,6 @@ def main():
         if prev_status != status_str:
             has_changed = True
             
-            # Si le service vient de tomber (UP -> DOWN), on vérifie si sa session bat le record
             if prev_status == "UP":
                 finished_dur = now_ts - last_change
                 if finished_dur >= record.get("duration", 0):
@@ -504,15 +586,25 @@ def main():
             "last_check": now_ts
         }
 
-        # Mise à jour de l'historique quotidien
-        if sid not in history:
-            history[sid] = {}
-        if today_str not in history[sid]:
-            history[sid][today_str] = {"up": 0, "total": 0}
+        # Mise à jour de l'historique 5 minutes
+        if sid not in history_5m:
+            history_5m[sid] = {}
+        if slot_5m not in history_5m[sid]:
+            history_5m[sid][slot_5m] = {"up": 0, "total": 0}
 
-        history[sid][today_str]["total"] += 1
+        history_5m[sid][slot_5m]["total"] += 1
         if is_up:
-            history[sid][today_str]["up"] += 1
+            history_5m[sid][slot_5m]["up"] += 1
+
+        # Mise à jour de l'historique quotidien (1d)
+        if sid not in history_1d:
+            history_1d[sid] = {}
+        if today_str not in history_1d[sid]:
+            history_1d[sid][today_str] = {"up": 0, "total": 0}
+
+        history_1d[sid][today_str]["total"] += 1
+        if is_up:
+            history_1d[sid][today_str]["up"] += 1
 
         services_output.append({
             "id": sid,
@@ -523,14 +615,13 @@ def main():
             "last_change": last_change
         })
 
-    # Évaluation des records en cours pour tous les services actuellement UP
+    # Record global en cours
     for s in SERVICES:
         sid = s["id"]
         if new_state[sid]["status"] == "UP":
             start_ts = new_state[sid]["last_change"]
             current_dur = now_ts - start_ts
             
-            # Si le service qui détient le record est celui-ci et qu'il est toujours en cours
             if record.get("name") == s["name"] and record.get("end_ts") is None:
                 record["duration"] = current_dur
                 record["start_ts"] = start_ts
@@ -542,18 +633,16 @@ def main():
                     "duration": current_dur
                 }
 
-    # Sauvegarde globale dans le JSON
     save_data = {
         "services": new_state,
-        "history": history,
+        "history_5m": history_5m,
+        "history_1d": history_1d,
         "record": record,
         "_meta": old_state.get("_meta", {})
     }
 
-    # Génération du fichier HTML complet
-    generate_html(services_output, all_up, history, record)
+    generate_html(services_output, all_up, history_5m, history_1d, record, now_ts)
 
-    # Stratégie de push Git
     last_push = old_state.get("_meta", {}).get("last_push", 0)
     should_push = has_changed or (now_ts - last_push >= 3600)
 
