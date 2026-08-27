@@ -28,8 +28,35 @@
         .container { width: 100%; max-width: 760px; }
         
         .header { text-align: center; margin-bottom: 1.5rem; }
-        .header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
-        .header p { color: var(--text-muted); font-size: 0.875rem; }
+        .header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.4rem; }
+        
+        .live-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: #3fb950;
+            background: rgba(53, 134, 54, 0.1);
+            border: 1px solid rgba(53, 134, 54, 0.3);
+            padding: 0.3rem 0.75rem;
+            border-radius: 20px;
+            margin-top: 0.4rem;
+            margin-bottom: 0.5rem;
+        }
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #3fb950;
+            border-radius: 50%;
+            box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }
+            70% { box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0); }
+        }
+        .header p { color: var(--text-muted); font-size: 0.85rem; }
 
         .record-card {
             background: rgba(210, 153, 34, 0.08);
@@ -79,7 +106,7 @@
             background: none;
             border: none;
             color: var(--text-muted);
-            padding: 0.35rem 0.75rem;
+            padding: 0.35rem 0.65rem;
             font-size: 0.8rem;
             font-weight: 600;
             cursor: pointer;
@@ -188,7 +215,11 @@
     <div class="container">
         <div class="header">
             <h1>Statut des Services</h1>
-            <p>Dernière vérification : 27/08/2026 à 23:25:04</p>
+            <div class="live-status">
+                <span class="pulse-dot"></span>
+                <span>Monitoring actif — Vérifications toutes les minutes</span>
+            </div>
+            <p id="last-update-banner">Dernier rapport généré : <strong id="last-update-timer" data-timestamp="1787873942">--</strong></p>
         </div>
 
         <div class="record-card">
@@ -200,37 +231,93 @@
             </div>
         </div>
 
-        <div class="global-banner up">
-            Tous les systèmes sont opérationnels
+        <div class="global-banner down">
+            Perturbation sur un ou plusieurs services
         </div>
 
         <div class="controls">
             <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">Historique de disponibilité</span>
             <div class="timeframe-selector">
-                <button class="tf-btn" onclick="setTimeframe(7)">7j</button>
-                <button class="tf-btn" onclick="setTimeframe(30)">30j</button>
-                <button class="tf-btn active" onclick="setTimeframe(90)">90j</button>
+                <button class="tf-btn" onclick="setTimeframe('1h')">1h</button>
+                <button class="tf-btn" onclick="setTimeframe('24h')">24h</button>
+                <button class="tf-btn" onclick="setTimeframe('7j')">7j</button>
+                <button class="tf-btn" onclick="setTimeframe('30j')">30j</button>
+                <button class="tf-btn active" onclick="setTimeframe('90j')">90j</button>
             </div>
         </div>
 
         <div id="services-list">
 
-            <div class="service-card" data-service-id="ktv">
+            <div class="service-card" data-service-id="jellyfin">
                 <div class="service-header">
                     <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://example.com/img/icons/ktv.webp" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>k.tv ↗</span>
+                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>Jellyfin ↗</span>
                     </a>
                     <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-ktv" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="uptime-pct" id="uptime-jellyfin" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="badge down">Inaccessible</span>
+                    </div>
+                </div>
+                <div class="timer-info">Hors ligne depuis : <strong data-since="1787873942">--</strong></div>
+                <div class="history-bars" id="bars-jellyfin"></div>
+                <div class="history-legend">
+                    <span id="legend-start-jellyfin">--</span>
+                    <span>Maintenant</span>
+                </div>
+            </div>
+            <div class="service-card" data-service-id="immich">
+                <div class="service-header">
+                    <a href="https://example.com" target="_blank" class="service-title">
+                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/immich.png" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>Immich ↗</span>
+                    </a>
+                    <div class="service-meta">
+                        <span class="uptime-pct" id="uptime-immich" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="badge down">Inaccessible</span>
+                    </div>
+                </div>
+                <div class="timer-info">Hors ligne depuis : <strong data-since="1787873942">--</strong></div>
+                <div class="history-bars" id="bars-immich"></div>
+                <div class="history-legend">
+                    <span id="legend-start-immich">--</span>
+                    <span>Maintenant</span>
+                </div>
+            </div>
+            <div class="service-card" data-service-id="outline">
+                <div class="service-header">
+                    <a href="https://example.com" target="_blank" class="service-title">
+                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/outline.png" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>Outline Wiki ↗</span>
+                    </a>
+                    <div class="service-meta">
+                        <span class="uptime-pct" id="uptime-outline" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
                         <span class="badge up">En ligne</span>
                     </div>
                 </div>
-                <div class="timer-info">En ligne depuis : <strong data-since="1787872323">--</strong></div>
-                <div class="history-bars" id="bars-ktv"></div>
+                <div class="timer-info">En ligne depuis : <strong data-since="1787873942">--</strong></div>
+                <div class="history-bars" id="bars-outline"></div>
                 <div class="history-legend">
-                    <span id="legend-start-ktv">--</span>
-                    <span>Aujourd'hui</span>
+                    <span id="legend-start-outline">--</span>
+                    <span>Maintenant</span>
+                </div>
+            </div>
+            <div class="service-card" data-service-id="mailcow">
+                <div class="service-header">
+                    <a href="https://example.com" target="_blank" class="service-title">
+                        <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mailcow.png" alt="" class="service-icon" onerror="this.style.display='none'">
+                        <span>Serveur Mail ↗</span>
+                    </a>
+                    <div class="service-meta">
+                        <span class="uptime-pct" id="uptime-mailcow" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <span class="badge up">En ligne</span>
+                    </div>
+                </div>
+                <div class="timer-info">En ligne depuis : <strong data-since="1787873942">--</strong></div>
+                <div class="history-bars" id="bars-mailcow"></div>
+                <div class="history-legend">
+                    <span id="legend-start-mailcow">--</span>
+                    <span>Maintenant</span>
                 </div>
             </div>
         </div>
@@ -238,8 +325,9 @@
     </div>
 
     <script>
-        const rawHistory = {"ktv": {"2026-08-27": {"up": 14, "total": 14}}};
-        let currentDays = 90;
+        const rawHistory5m = {"jellyfin": {"1787873700": {"up": 0, "total": 1}}, "immich": {"1787873700": {"up": 0, "total": 1}}, "outline": {"1787873700": {"up": 1, "total": 1}}, "mailcow": {"1787873700": {"up": 1, "total": 1}}};
+        const rawHistory1d = {"ktv": {"2026-08-27": {"up": 14, "total": 14}}, "jellyfin": {"2026-08-27": {"up": 0, "total": 1}}, "immich": {"2026-08-27": {"up": 0, "total": 1}}, "outline": {"2026-08-27": {"up": 1, "total": 1}}, "mailcow": {"2026-08-27": {"up": 1, "total": 1}}};
+        let currentTimeframe = '90j';
 
         function formatDuration(diff) {
             const days = Math.floor(diff / 86400);
@@ -254,54 +342,103 @@
             return res;
         }
 
-        function setTimeframe(days) {
-            currentDays = days;
+        function setTimeframe(tf) {
+            currentTimeframe = tf;
             document.querySelectorAll('.tf-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.innerText === days + 'j');
+                btn.classList.toggle('active', btn.getAttribute('onclick').includes("'" + tf + "'"));
             });
             renderHistory();
         }
 
+        function createBar(container, data, label) {
+            const bar = document.createElement('div');
+            bar.className = 'bar';
+
+            if (data.total === 0) {
+                bar.classList.add('nodata');
+                bar.innerHTML = `<div class="tooltip">$${label}<br>Aucune donnée</div>`;
+            } else {
+                const pct = Math.round((data.up / data.total) * 100);
+                if (pct < 95 && pct > 0) bar.classList.add('partial');
+                else if (pct === 0) bar.classList.add('down');
+
+                bar.innerHTML = `<div class="tooltip">$${label}<br><strong>$${pct}% d'uptime</strong> ($${data.up}/$${data.total} checks)</div>`;
+            }
+            container.appendChild(bar);
+        }
+
         function renderHistory() {
+            const now = Math.floor(Date.now() / 1000);
             const today = new Date();
-            
+
             document.querySelectorAll('.service-card').forEach(card => {
                 const sid = card.getAttribute('data-service-id');
                 const container = document.getElementById('bars-' + sid);
                 const legendStart = document.getElementById('legend-start-' + sid);
                 const uptimeLabel = document.getElementById('uptime-' + sid);
-                
-                container.innerHTML = '';
-                legendStart.innerText = "Il y a " + currentDays + " jours";
 
-                const sHistory = rawHistory[sid] || {};
+                container.innerHTML = '';
                 let totalUp = 0;
                 let totalChecks = 0;
 
-                for (let i = currentDays - 1; i >= 0; i--) {
-                    const d = new Date();
-                    d.setDate(today.getDate() - i);
-                    const dateStr = d.toISOString().split('T')[0];
-                    const formattedDate = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+                if (currentTimeframe === '1h') {
+                    legendStart.innerText = "Il y a 1h";
+                    const currentSlot = Math.floor(now / 300) * 300;
+                    const sHistory = rawHistory5m[sid] || {};
 
-                    const dayData = sHistory[dateStr] || { up: 0, total: 0 };
-                    const bar = document.createElement('div');
-                    bar.className = 'bar';
+                    for (let i = 11; i >= 0; i--) {
+                        const slotTs = currentSlot - (i * 300);
+                        const slotData = sHistory[slotTs] || sHistory[slotTs.toString()] || { up: 0, total: 0 };
+                        
+                        const startTime = new Date(slotTs * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                        const endTime = new Date((slotTs + 300) * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-                    if (dayData.total === 0) {
-                        bar.classList.add('nodata');
-                        bar.innerHTML = `<div class="tooltip">${formattedDate}<br>Aucune donnée</div>`;
-                    } else {
+                        createBar(container, slotData, `${startTime} – ${endTime}`);
+                        totalUp += slotData.up;
+                        totalChecks += slotData.total;
+                    }
+                } else if (currentTimeframe === '24h') {
+                    legendStart.innerText = "Il y a 24h";
+                    const currentHour = Math.floor(now / 3600) * 3600;
+                    const sHistory = rawHistory5m[sid] || {};
+
+                    for (let i = 23; i >= 0; i--) {
+                        const hourStart = currentHour - (i * 3600);
+                        const hourEnd = hourStart + 3600;
+                        let hUp = 0;
+                        let hTotal = 0;
+
+                        for (let t = hourStart; t < hourEnd; t += 300) {
+                            const slotData = sHistory[t] || sHistory[t.toString()];
+                            if (slotData) {
+                                hUp += slotData.up;
+                                hTotal += slotData.total;
+                            }
+                        }
+
+                        const startTime = new Date(hourStart * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                        const endTime = new Date(hourEnd * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+                        createBar(container, { up: hUp, total: hTotal }, `${startTime} – ${endTime}`);
+                        totalUp += hUp;
+                        totalChecks += hTotal;
+                    }
+                } else {
+                    const days = parseInt(currentTimeframe.replace('j', ''));
+                    legendStart.innerText = `Il y a ${days} jours`;
+                    const sHistory = rawHistory1d[sid] || {};
+
+                    for (let i = days - 1; i >= 0; i--) {
+                        const d = new Date();
+                        d.setDate(today.getDate() - i);
+                        const dateStr = d.toISOString().split('T')[0];
+                        const formattedDate = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+                        const dayData = sHistory[dateStr] || { up: 0, total: 0 };
+                        createBar(container, dayData, formattedDate);
                         totalUp += dayData.up;
                         totalChecks += dayData.total;
-                        const pct = Math.round((dayData.up / dayData.total) * 100);
-                        
-                        if (pct < 95 && pct > 0) bar.classList.add('partial');
-                        else if (pct === 0) bar.classList.add('down');
-
-                        bar.innerHTML = `<div class="tooltip">${formattedDate}<br><strong>${pct}% d'uptime</strong> (${dayData.up}/${dayData.total} checks)</div>`;
                     }
-                    container.appendChild(bar);
                 }
 
                 const globalPct = totalChecks > 0 ? ((totalUp / totalChecks) * 100).toFixed(1) : "100.0";
@@ -312,14 +449,27 @@
         function updateTimers() {
             const now = Math.floor(Date.now() / 1000);
             
-            // Mis à jour des compteurs individuels par service
+            const lastUpdateEl = document.getElementById('last-update-timer');
+            if (lastUpdateEl) {
+                const genTs = parseInt(lastUpdateEl.getAttribute('data-timestamp'));
+                const diff = Math.max(0, now - genTs);
+                const dt = new Date(genTs * 1000);
+                const exactTime = dt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                
+                if (diff < 60) {
+                    lastUpdateEl.innerText = `à l'instant (${exactTime})`;
+                } else {
+                    const mins = Math.floor(diff / 60);
+                    lastUpdateEl.innerText = `il y a ${mins} min (${exactTime})`;
+                }
+            }
+
             document.querySelectorAll('[data-since]').forEach(el => {
                 const since = parseInt(el.getAttribute('data-since'));
                 const diff = Math.max(0, now - since);
                 el.innerText = formatDuration(diff);
             });
 
-            // Mis à jour du compteur du record global
             const recEl = document.getElementById('record-timer');
             if (recEl) {
                 const start = parseInt(recEl.getAttribute('data-start'));
