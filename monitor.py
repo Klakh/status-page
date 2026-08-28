@@ -117,7 +117,7 @@ def check_service(service):
 
     timeout = service.get("timeout", DEFAULT_TIMEOUT)
     expected = service.get("expect_status")
-    req = urllib.request.Request(url, headers={"User-Agent": "PiStatusMonitor/2.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "StatusMonitor/2.0"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             status = response.status
