@@ -545,7 +545,12 @@ def main():
         )
 
     published = False
-    if status_changed or now_ts - last_publish >= PUBLISH_EVERY:
+    due = status_changed or now_ts - last_publish >= PUBLISH_EVERY
+    if not due:
+        # Un saut silencieux se confond avec une panne : on dit toujours pourquoi.
+        print("[%d] sondé, pas publié : prochaine publication dans %ds."
+              % (now_ts, PUBLISH_EVERY - (now_ts - last_publish)))
+    if due:
         try:
             published = publish(message, amend)
             if published:

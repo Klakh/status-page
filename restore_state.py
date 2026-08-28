@@ -105,6 +105,10 @@ def main():
     # servent qu'à réalimenter l'historique.
     state = monitor.state_from_data(sources[-1])
     state["history"] = merge_histories(sources)
+    # Une restauration existe pour être publiée : sans cela, last_publish
+    # hérité de data.json ferait sauter la publication au prochain monitor.py,
+    # et le travail resterait invisible pendant tout l'intervalle.
+    state["last_publish"] = 0
 
     if args.up:
         if args.since_epoch:
