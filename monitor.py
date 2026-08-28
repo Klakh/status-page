@@ -543,11 +543,13 @@ def main():
             "last_change": last_change,
             "last_check": now_ts,
         }
+        # Rien d'autre que l'identifiant, le nom codé et l'état : une page de
+        # statut publique n'a pas à révéler où vivent les services qu'elle
+        # surveille. public_url et icon restent lisibles dans config.json, qui
+        # ne quitte jamais la machine.
         services_output.append({
             "id": sid,
             "name": s["name"],
-            "url": s.get("public_url"),
-            "icon": s.get("icon", ""),
             "status": status,
             "since": last_change,
         })

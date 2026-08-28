@@ -166,14 +166,7 @@
         gap: 0.6rem;
         font-weight: 600;
         font-size: 1.1rem;
-        text-decoration: none;
         color: var(--text-main);
-    }
-    .service-icon {
-        width: 22px;
-        height: 22px;
-        border-radius: 4px;
-        object-fit: contain;
     }
     .service-meta { display: flex; align-items: center; gap: 0.75rem; }
     .stats-summary {
@@ -696,24 +689,11 @@ function ensureCards(services) {
         const header = document.createElement("div");
         header.className = "service-header";
 
-        const title = document.createElement(s.url ? "a" : "div");
+        // Ni lien ni icône : la page n'affiche que le nom codé du service.
+        const title = document.createElement("div");
         title.className = "service-title";
-        if (s.url) {
-            title.href = s.url;
-            title.target = "_blank";
-            title.rel = "noopener noreferrer";
-        }
-        if (s.icon) {
-            const img = document.createElement("img");
-            img.className = "service-icon";
-            img.src = s.icon;
-            img.alt = "";
-            img.loading = "lazy";
-            img.addEventListener("error", () => { img.style.display = "none"; });
-            title.appendChild(img);
-        }
         const nameSpan = document.createElement("span");
-        nameSpan.textContent = s.name + (s.url ? " ↗" : "");
+        nameSpan.textContent = s.name;
         title.appendChild(nameSpan);
         header.appendChild(title);
 

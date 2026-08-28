@@ -117,25 +117,26 @@ cadence ; l'écart se résorbe au fil de la rétention.
 [
   {
     "id": "ktv",
-    "name": "KTV",
+    "name": "K.tv",
     "check_url": "http://127.0.0.1:8080/health",
-    "public_url": "https://example.com",
-    "icon": "https://example.com/favicon.ico",
     "timeout": 5,
     "expect_status": 200
   }
 ]
 ```
 
-| Clé             | Requis | Défaut                     | Rôle                                            |
-|-----------------|--------|----------------------------|-------------------------------------------------|
-| `id`            | oui    | —                          | Identifiant stable, clé de l'historique          |
-| `name`          | oui    | —                          | Nom affiché                                      |
-| `check_url`     | oui    | `public_url`               | URL sondée                                       |
-| `public_url`    | non    | —                          | Lien cliquable sur la carte                      |
-| `icon`          | non    | —                          | Icône affichée à côté du nom                     |
-| `timeout`       | non    | `5`                        | Secondes avant abandon                           |
-| `expect_status` | non    | tout code 2xx/3xx          | Impose un code HTTP exact                        |
+| Clé             | Requis | Défaut            | Rôle                                    |
+|-----------------|--------|-------------------|-----------------------------------------|
+| `id`            | oui    | —                 | Identifiant stable, clé de l'historique  |
+| `name`          | oui    | —                 | Nom **codé**, affiché sur la page        |
+| `check_url`     | oui    | —                 | URL sondée, jamais publiée               |
+| `timeout`       | non    | `5`               | Secondes avant abandon                   |
+| `expect_status` | non    | tout code 2xx/3xx | Impose un code HTTP exact                |
+
+La page publie exactement quatre champs par service : `id`, `name`, `status` et
+l'instant du dernier changement d'état. Rien d'autre ne sort de la machine —
+ni URL sondée, ni lien, ni icône, ni domaine. `config.json` est ignoré par Git
+et ne quitte jamais le Pi ; c'est là qu'on garde les adresses réelles.
 
 Changer un `id` réinitialise l'historique du service concerné.
 

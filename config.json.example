@@ -1,9 +1,7 @@
 [
   {
     "id": "service-example",
-    "name": "Mon Service",
-    "check_url": "http://127.0.0.1:8080/health",
-    "public_url": "https://example.com",
-    "icon": "https://example.com/icon.png"
+    "name": "Nom codé",
+    "check_url": "http://127.0.0.1:8080/health"
   }
 ]
