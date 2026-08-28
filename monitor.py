@@ -20,9 +20,16 @@ CONFIG_EXAMPLE_FILE = os.path.join(BASE_DIR, "config.json.example")
 STATE_FILE = os.path.join(BASE_DIR, "state.json")
 DATA_FILE = os.path.join(BASE_DIR, "data.json")
 
-# Intervalle nominal entre deux exécutions (doit correspondre au cron).
-# Sert au navigateur pour savoir à partir de quand les données sont périmées.
-CHECK_INTERVAL = 300
+# Intervalle nominal entre deux exécutions : DOIT correspondre au cron. C'est
+# la durée qu'un check en échec représente dans le calcul du downtime, et le
+# seuil à partir duquel la page signale des données périmées.
+CHECK_INTERVAL = 60
+
+# Sonder est bon marché, publier ne l'est pas : un commit + push TLS coûte bien
+# plus cher au Pi que quelques requêtes HTTP. On sonde donc à chaque passage
+# mais on ne pousse qu'à cet intervalle — sauf changement d'état, publié
+# immédiatement pour que l'alerte ne soit jamais retardée.
+PUBLISH_EVERY = 300
 
 # Résolutions de l'historique : (pas en secondes, durée de rétention).
 # Chaque check alimente les trois compteurs, donc pas de ré-agrégation à faire.
@@ -331,6 +338,7 @@ def main():
     history = migrate_history(old_state.get("history", {}))
     transitions = load_transitions(old_state.get("transitions", {}))
     finished_record = old_state.get("record_finished", {})
+    last_publish = old_state.get("last_publish", 0)
     prev_services = old_state.get("services", {})
 
     results = run_checks(services_config)
@@ -404,13 +412,6 @@ def main():
         "history": {sid: history_for_output(b) for sid, b in history.items()},
     })
 
-    write_json_atomic(STATE_FILE, {
-        "services": services_state,
-        "transitions": transitions,
-        "history": history,
-        "record_finished": finished_record,
-    })
-
     if status_changed:
         detail = ", ".join("%s -> %s" % (name, st) for name, st in status_changed)
         message, amend = "Alerte : changement d'état (%s)" % detail, False
@@ -422,13 +423,26 @@ def main():
             and head_age(now_ts) < NEW_COMMIT_EVERY
         )
 
-    try:
-        if publish(message, amend):
-            print("[%d] publié : %s%s" % (now_ts, message, " (amend)" if amend else ""))
-    except subprocess.TimeoutExpired:
-        print("[%d] Git : délai dépassé." % now_ts)
-    except subprocess.CalledProcessError as e:
-        print("[%d] Git a échoué : %s" % (now_ts, (e.stderr or "").strip()))
+    published = False
+    if status_changed or now_ts - last_publish >= PUBLISH_EVERY:
+        try:
+            published = publish(message, amend)
+            if published:
+                print("[%d] publié : %s%s" % (now_ts, message, " (amend)" if amend else ""))
+        except subprocess.TimeoutExpired:
+            print("[%d] Git : délai dépassé." % now_ts)
+        except subprocess.CalledProcessError as e:
+            print("[%d] Git a échoué : %s" % (now_ts, (e.stderr or "").strip()))
+
+    # État écrit en dernier : si la publication échoue, last_publish n'avance
+    # pas et le prochain passage retentera au lieu d'attendre l'intervalle.
+    write_json_atomic(STATE_FILE, {
+        "services": services_state,
+        "transitions": transitions,
+        "history": history,
+        "record_finished": finished_record,
+        "last_publish": now_ts if published else last_publish,
+    })
 
 
 if __name__ == "__main__":

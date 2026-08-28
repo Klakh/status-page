@@ -52,11 +52,18 @@ locale au Pi, et l'état complet n'est jamais publié.
 ### Cron
 
 ```cron
-*/5 * * * * /usr/bin/python3 /home/dietpi/status-page/monitor.py >> /var/log/status-page.log 2>&1
+* * * * * /usr/bin/python3 /home/dietpi/status-page/monitor.py >> /var/log/status-page.log 2>&1
 ```
 
-Si l'intervalle change, ajuster `CHECK_INTERVAL` dans `monitor.py` : c'est ce
-qui permet à la page de signaler des données périmées.
+Sonder et publier sont découplés : la sonde tourne à chaque passage, mais un
+commit + push n'a lieu qu'au bout de `PUBLISH_EVERY` secondes — sauf changement
+d'état, poussé immédiatement. Une minute de précision ne coûte donc pas
+1440 push par jour au Pi.
+
+`CHECK_INTERVAL` **doit** correspondre au cron : c'est la durée qu'un check en
+échec représente dans le downtime, et le seuil d'obsolescence affiché par la
+page. Le changer ne réinterprète pas l'historique déjà enregistré à une autre
+cadence ; l'écart se résorbe au fil de la rétention.
 
 ## Configuration
 
