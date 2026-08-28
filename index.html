@@ -383,7 +383,6 @@ const POLL_MS = 60000;
 let LANG = "fr";
 let TF = "90d";
 let DATA = null;
-let skew = 0;              // serverNow - clientNow, en secondes
 let lastFetchOk = true;
 let pollTimer = null;
 const cards = new Map();   // serviceId -> refs DOM
@@ -396,7 +395,10 @@ function restore(key) {
 }
 
 function t() { return I18N[LANG]; }
-function serverNow() { return Math.floor(Date.now() / 1000) + skew; }
+/* Horloge du visiteur, volontairement pas recalée sur data.t : sinon « maintenant »
+   serait figé sur la dernière mesure, l'indicateur d'obsolescence ne pourrait jamais
+   se déclencher et une panne de la sonde elle-même resterait invisible. */
+function serverNow() { return Math.floor(Date.now() / 1000); }
 
 /* ------------------------------------------------- formateurs Intl mis en cache */
 
@@ -508,7 +510,6 @@ async function poll() {
         if (!res.ok) throw new Error("HTTP " + res.status);
         const json = await res.json();
         DATA = json;
-        skew = (json.t || 0) - Math.floor(Date.now() / 1000);
         lastFetchOk = true;
     } catch (e) {
         lastFetchOk = false;   // on garde les dernières données connues
