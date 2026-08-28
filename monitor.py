@@ -7,6 +7,8 @@ entièrement dans index.html, qui recharge data.json tout seul côté navigateur
 """
 
 import json
+import logging
+import logging.handlers
 import os
 import subprocess
 import time
@@ -49,11 +51,47 @@ TRANSITIONS_KEEP = 180 * 86400
 DEFAULT_TIMEOUT = 5
 MAX_WORKERS = 8
 
+# Journal borné : à une exécution par minute, une redirection shell grossirait
+# d'une trentaine de mégaoctets par an sur la carte SD. Trois fichiers de
+# 256 Ko plafonnent l'ensemble à 768 Ko, soit environ dix jours d'historique.
+LOG_FILE = os.path.join(BASE_DIR, "status.log")
+LOG_MAX_BYTES = 256 * 1024
+LOG_BACKUPS = 2
+
 AUTO_MSG = "Mise à jour automatique des données"
 # Au-delà de cette ancienneté, on ouvre un vrai commit au lieu d'amender,
 # ce qui laisse une trace quotidienne dans l'historique Git.
 NEW_COMMIT_EVERY = 86400
 SQUASH_AUTO_COMMITS = True
+
+def _build_logger():
+    """Journalise vers le fichier tournant et vers la sortie standard : le
+    fichier pour le cron, la sortie pour les lancements à la main. Si le
+    fichier n'est pas ouvrable, on continue sans lui — un problème de journal
+    ne doit jamais empêcher la supervision de tourner."""
+    logger = logging.getLogger("status-page")
+    logger.setLevel(logging.INFO)
+    if logger.handlers:
+        return logger
+
+    console = logging.StreamHandler()
+    console.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(console)
+
+    try:
+        rotating = logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS,
+            encoding="utf-8")
+        rotating.setFormatter(logging.Formatter("%(asctime)s %(message)s",
+                                                "%Y-%m-%d %H:%M:%S"))
+        logger.addHandler(rotating)
+    except OSError as e:
+        logger.warning("journal fichier désactivé : %s", e)
+    return logger
+
+
+log = _build_logger().info
+
 
 EXAMPLE_CONFIG = [
     {
@@ -83,7 +121,7 @@ def load_config():
             with open(CONFIG_EXAMPLE_FILE, "w", encoding="utf-8") as f:
                 json.dump(EXAMPLE_CONFIG, f, indent=2, ensure_ascii=False)
         except OSError as e:
-            print("Impossible de créer config.json.example : %s" % e)
+            log("Impossible de créer config.json.example : %s" % e)
 
     # Jamais de repli silencieux sur EXAMPLE_CONFIG : sur un clone neuf, où
     # config.json manque par construction, cela reviendrait à sonder un service
@@ -164,7 +202,7 @@ def load_state():
             with open(STATE_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (OSError, ValueError):
-            print("state.json illisible.")
+            log("state.json illisible.")
 
     if os.path.exists(DATA_FILE):
         try:
@@ -172,13 +210,13 @@ def load_state():
                 data = json.load(f)
             state = state_from_data(data)
             points = sum(len(b) for h in state["history"].values() for b in h.values())
-            print("État reconstruit depuis data.json : %d service(s), %d points d'historique."
+            log("État reconstruit depuis data.json : %d service(s), %d points d'historique."
                   % (len(state["services"]), points))
             return state
         except (OSError, ValueError, KeyError, TypeError) as e:
-            print("data.json inexploitable pour la reprise : %s" % e)
+            log("data.json inexploitable pour la reprise : %s" % e)
 
-    print("Aucun état exploitable, démarrage à zéro.")
+    log("Aucun état exploitable, démarrage à zéro.")
     return {}
 
 
@@ -399,7 +437,7 @@ def realign_on_remote(message):
     if not already_pushed:
         tag = "avant-realignement-%d" % int(time.time())
         git("tag", "-f", tag, "HEAD", check=False)
-        print("HEAD local conservé sous l'étiquette %s." % tag)
+        log("HEAD local conservé sous l'étiquette %s." % tag)
 
     with open(DATA_FILE, "rb") as f:
         payload = f.read()
@@ -411,7 +449,7 @@ def realign_on_remote(message):
     if has_staged_changes():
         git("commit", "-m", message)
     git("push", "origin", "main")
-    print("Réaligné sur le dépôt distant, données republiées.")
+    log("Réaligné sur le dépôt distant, données republiées.")
     return True
 
 
@@ -434,7 +472,7 @@ def publish(message, amend):
 
     # Push rejeté : le dépôt a bougé ailleurs. Vaut pour l'amende comme pour le
     # commit normal, qui sinon échouait à chaque passage sans jamais se rattraper.
-    print("Push rejeté, tentative de réalignement.")
+    log("Push rejeté, tentative de réalignement.")
     return realign_on_remote(message)
 
 
@@ -446,7 +484,7 @@ def compact_repo():
         git("reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
         git("gc", "--prune=now", "--quiet", timeout=600)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        print("Compactage du dépôt ignoré : %s" % e)
+        log("Compactage du dépôt ignoré : %s" % e)
 
 
 # -------------------------------------------------------------------- main
@@ -548,19 +586,19 @@ def main():
     due = status_changed or now_ts - last_publish >= PUBLISH_EVERY
     if not due:
         # Un saut silencieux se confond avec une panne : on dit toujours pourquoi.
-        print("[%d] sondé, pas publié : prochaine publication dans %ds."
-              % (now_ts, PUBLISH_EVERY - (now_ts - last_publish)))
+        log("sondé, pas publié : prochaine publication dans %ds."
+            % (PUBLISH_EVERY - (now_ts - last_publish)))
     if due:
         try:
             published = publish(message, amend)
             if published:
-                print("[%d] publié : %s%s" % (now_ts, message, " (amend)" if amend else ""))
+                log("publié : %s%s" % (message, " (amend)" if amend else ""))
                 if not amend:
                     compact_repo()
         except subprocess.TimeoutExpired:
-            print("[%d] Git : délai dépassé." % now_ts)
+            log("Git : délai dépassé.")
         except subprocess.CalledProcessError as e:
-            print("[%d] Git a échoué : %s" % (now_ts, (e.stderr or "").strip()))
+            log("Git a échoué : %s" % (e.stderr or "").strip())
 
     # État écrit en dernier : si la publication échoue, last_publish n'avance
     # pas et le prochain passage retentera au lieu d'attendre l'intervalle.

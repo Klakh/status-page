@@ -223,6 +223,28 @@
     .bar.partial { background-color: var(--partial); }
     .bar.nodata { background-color: #21262d; }
 
+    /* Le dernier bâtonnet couvre une période encore en cours. Le hachurer le
+       ferait passer pour une zone sans mesure, alors qu'on sait déjà ce qui s'y
+       passe : on le remplit plutôt à hauteur du temps écoulé, la couleur connue
+       montant du bas vers le gris de ce qui reste à venir. Il devient plein
+       quand sa période s'achève. */
+    @property --fill {
+        syntax: "<percentage>";
+        inherits: false;
+        initial-value: 0%;
+    }
+    .bar.pending {
+        background-color: transparent;
+        background-image: linear-gradient(to top,
+            var(--bar-tint) 0%,
+            var(--bar-tint) var(--fill),
+            #21262d calc(var(--fill) + 24%),
+            #21262d 100%);
+        /* Anime le dégradé seconde après seconde là où @property est reconnu ;
+           ailleurs le remplissage avance par paliers d'une seconde. */
+        transition: --fill 1s linear;
+    }
+
     /* Périodes non mesurées mais déduites du journal des transitions : même
        teinte que le mesuré, hachurée pour rester distinguable d'une mesure. */
     .bar.deduced {
@@ -343,6 +365,7 @@ const I18N = {
         downtime: "Downtime :",
         now: "Maintenant",
         noData: "Aucune donnée",
+        inProgress: "période en cours",
         deducedUp: "Présumé en ligne (aucune mesure)",
         deducedDown: "Présumé hors ligne (aucune mesure)",
         uptime: "d'uptime",
@@ -377,6 +400,7 @@ const I18N = {
         downtime: "Downtime:",
         now: "Now",
         noData: "No data",
+        inProgress: "period in progress",
         deducedUp: "Presumed online (no measurement)",
         deducedDown: "Presumed offline (no measurement)",
         uptime: "uptime",
@@ -406,6 +430,15 @@ const STEP_LADDER = [300, 600, 900, 1800, 3600, 2 * 3600, 3 * 3600, 6 * 3600, 12
 const TICK_LADDER = [3600, 2 * 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400,
                      2 * 86400, 7 * 86400, 14 * 86400, 30 * 86400];
 const MAX_BARS = 90;
+/* Teinte du bâtonnet en cours, selon ce que sa période laisse déjà voir.
+   Absente pour « aucune donnée » : là on ne sait rien, il reste gris. */
+const PENDING_TINT = {
+    "bar": "var(--up)",
+    "bar down": "var(--down)",
+    "bar partial": "var(--partial)",
+    "bar deduced": "var(--up)",
+    "bar deduced-down": "var(--down)",
+};
 const POLL_MS = 60000;
 
 /* ---------------------------------------------------------------- state */
@@ -947,6 +980,22 @@ function renderHistory() {
                 cls = bUp === 0 ? "bar down" : (bUp < bTot ? "bar partial" : "bar");
                 tip = timeStr + "\n" + pct + "% " + L.uptime + " (" + bUp + "/" + bTot + ")";
             }
+            // Dernier bâtonnet : sa période n'est pas finie, on le signale par
+            // un remplissage progressif plutôt que par un aplat trompeur.
+            const tint = i === bars - 1 ? PENDING_TINT[cls] : null;
+            if (tint) {
+                cls = "bar pending";
+                bar.style.setProperty("--bar-tint", tint);
+                bar.dataset.pstart = bStart;
+                bar.dataset.pstep = step;
+                tip += "\n" + L.inProgress;
+            } else if (bar.dataset.pstart) {
+                bar.style.removeProperty("--bar-tint");
+                bar.style.removeProperty("--fill");
+                delete bar.dataset.pstart;
+                delete bar.dataset.pstep;
+            }
+
             if (bar.className !== cls) bar.className = cls;
             bar.dataset.tip = tip;
         }
@@ -988,7 +1037,19 @@ function renderAll() {
 
 /* --------------------------------------------------------------- minuteries */
 
+/* Fait avancer le remplissage du bâtonnet en cours, une fois par seconde. */
+function updatePending() {
+    const now = serverNow();
+    document.querySelectorAll(".bar.pending").forEach(bar => {
+        const start = +bar.dataset.pstart, step = +bar.dataset.pstep;
+        if (!step) return;
+        const ratio = Math.max(0, Math.min(1, (now - start) / step));
+        bar.style.setProperty("--fill", (ratio * 100).toFixed(2) + "%");
+    });
+}
+
 function updateTimers() {
+    updatePending();
     const now = serverNow();
     document.querySelectorAll("[data-since]").forEach(el => {
         const since = parseInt(el.dataset.since, 10);

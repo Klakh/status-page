@@ -91,10 +91,15 @@ date vieille de plusieurs mois ne crée pas de créneaux de 5 min qui seraient
 * * * * * /usr/bin/python3 /home/dietpi/status-page/monitor.py
 ```
 
-Pas de redirection vers `/var/log` : ce répertoire appartient à root, la
-redirection échoue avant que la commande démarre, et cron n'exécute alors rien
-du tout — sans que rien n'apparaisse nulle part. Si un journal devient
-nécessaire, il sera écrit par `monitor.py` lui-même, pas par le cron.
+Aucune redirection : `monitor.py` tient lui-même son journal dans
+`status.log`, avec rotation par taille — trois fichiers de 256 Ko, soit 768 Ko
+au plus, une dizaine de jours à raison d'une exécution par minute. Le fichier
+est ignoré par Git.
+
+Rediriger depuis le cron serait une mauvaise idée à deux titres : vers
+`/var/log`, la redirection échoue avant que la commande démarre et cron
+n'exécute alors rien du tout, sans que rien n'apparaisse nulle part ; ailleurs,
+elle double les lignes déjà écrites par le journal et grossit sans limite.
 
 Sonder et publier sont découplés : la sonde tourne à chaque passage, mais un
 commit + push n'a lieu qu'au bout de `PUBLISH_EVERY` secondes — sauf changement
