@@ -274,7 +274,7 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
             <span class="record-icon">🏆</span>
             <div class="record-content">
                 Gagnant : <strong>{rec_name if has_valid_record else 'Initialisation...'}</strong>
-                {" , up pendant <strong id=\"record-timer\" data-start=\"" + str(rec_start_ts) + "\" data-end=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">--</strong>, du <span id=\"rec-start\" data-ts=\"" + str(rec_start_ts) + "\">--</span> au <span id=\"rec-end\" data-ts=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">maintenant</span>." if has_valid_record else "."}
+                {" , up pendant <strong id=\"record-timer\" data-start=\"" + str(rec_start_ts) + "\" data-end=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">--</strong>, du <span id=\"rec-start\" data-ts=\"" + str(rec_start_ts) + "\">--</span> <span id=\"rec-prep\">à</span> <span id=\"rec-end\" data-ts=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">maintenant</span>." if has_valid_record else "."}
             </div>
         </div>
 
@@ -363,12 +363,19 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
         function formatTick(ts, totalSecs) {{
             const d = new Date(ts * 1000);
             if (totalSecs <= 86400) {{
-                return d.toLocaleTimeString([], {{ hour: '2-digit', minute: '2-digit' }});
+                return d.toLocaleTimeString('fr-FR', {{ hour: '2-digit', minute: '2-digit' }});
             }} else if (totalSecs <= 7 * 86400) {{
-                return d.toLocaleDateString([], {{ day: 'numeric', month: 'short' }}) + " " + d.toLocaleTimeString([], {{ hour: '2-digit', minute: '2-digit' }});
+                return d.toLocaleDateString('fr-FR', {{ day: 'numeric', month: 'short' }}) + " " + d.toLocaleTimeString('fr-FR', {{ hour: '2-digit', minute: '2-digit' }});
             }} else {{
-                return d.toLocaleDateString([], {{ day: 'numeric', month: 'short' }});
+                return d.toLocaleDateString('fr-FR', {{ day: 'numeric', month: 'short' }});
             }}
+        }}
+
+        function formatFrenchDateTime(ts) {{
+            const d = new Date(ts * 1000);
+            const dateStr = d.toLocaleDateString('fr-FR', {{ day: '2-digit', month: '2-digit', year: 'numeric' }});
+            const timeStr = d.toLocaleTimeString('fr-FR', {{ hour: '2-digit', minute: '2-digit' }});
+            return dateStr + ' à ' + timeStr;
         }}
 
         function setTimeframe(tf) {{
@@ -429,9 +436,9 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
                     const dEnd = new Date(bEnd * 1000);
                     let timeStr = "";
                     if (totalSecs <= 86400) {{
-                        timeStr = dStart.toLocaleTimeString([], {{hour:'2-digit', minute:'2-digit'}}) + " à " + dEnd.toLocaleTimeString([], {{hour:'2-digit', minute:'2-digit'}});
+                        timeStr = dStart.toLocaleTimeString('fr-FR', {{hour:'2-digit', minute:'2-digit'}}) + " à " + dEnd.toLocaleTimeString('fr-FR', {{hour:'2-digit', minute:'2-digit'}});
                     }} else {{
-                        timeStr = dStart.toLocaleDateString([], {{day:'numeric', month:'short'}}) + " " + dStart.toLocaleTimeString([], {{hour:'2-digit', minute:'2-digit'}});
+                        timeStr = dStart.toLocaleDateString('fr-FR', {{day:'numeric', month:'short'}}) + " " + dStart.toLocaleTimeString('fr-FR', {{hour:'2-digit', minute:'2-digit'}});
                     }}
 
                     if (bTotal === 0) {{
@@ -454,7 +461,7 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
                     container.appendChild(bar);
                 }}
 
-                // Génération des repères temporels (5 repères)
+                // Génération des 5 repères temporels
                 const tickRatios = [0, 0.25, 0.50, 0.75, 1.0];
                 tickRatios.forEach(r => {{
                     const span = document.createElement('span');
@@ -482,10 +489,8 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
             if (lcEl) {{
                 const ts = parseInt(lcEl.getAttribute('data-ts'));
                 if (ts) {{
-                    lcEl.innerText = new Date(ts * 1000).toLocaleString([], {{
-                        day: '2-digit', month: '2-digit', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit', second: '2-digit'
-                    }});
+                    const d = new Date(ts * 1000);
+                    lcEl.innerText = d.toLocaleDateString('fr-FR', {{ day: '2-digit', month: '2-digit', year: 'numeric' }}) + ' à ' + d.toLocaleTimeString('fr-FR', {{ hour: '2-digit', minute: '2-digit', second: '2-digit' }});
                 }}
             }}
 
@@ -493,23 +498,20 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
             if (startEl) {{
                 const ts = parseInt(startEl.getAttribute('data-ts'));
                 if (ts > 0) {{
-                    startEl.innerText = new Date(ts * 1000).toLocaleString([], {{
-                        day: '2-digit', month: '2-digit', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit'
-                    }});
+                    startEl.innerText = formatFrenchDateTime(ts);
                 }}
             }}
 
             const endEl = document.getElementById('rec-end');
+            const prepEl = document.getElementById('rec-prep');
             if (endEl) {{
                 const ts = parseInt(endEl.getAttribute('data-ts'));
                 if (ts > 0) {{
-                    endEl.innerText = new Date(ts * 1000).toLocaleString([], {{
-                        day: '2-digit', month: '2-digit', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit'
-                    }});
+                    endEl.innerText = formatFrenchDateTime(ts);
+                    if (prepEl) prepEl.innerText = "au";
                 }} else {{
                     endEl.innerText = "maintenant";
+                    if (prepEl) prepEl.innerText = "à";
                 }}
             }}
         }}
