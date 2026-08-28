@@ -4,10 +4,8 @@ import json
 import time
 import os
 import subprocess
-from datetime import datetime, timedelta
 
 # --- CONFIGURATION DES SERVICES ---
-# Tu pourras ajouter d'autres blocs {} dans la liste plus tard.
 SERVICES = [
     {
         "id": "ktv",
@@ -55,20 +53,17 @@ def clean_old_history(history, now_ts):
                 pass
     return cleaned
 
-def generate_html(services_data, global_status, history_data, record_data):
-    now_str = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
+def generate_html(services_data, global_status, history_data, record_data, now_ts):
     history_json = json.dumps(history_data)
     
     global_banner_class = "up" if global_status else "down"
     global_banner_text = "Tous les systèmes sont opérationnels" if global_status else "Perturbation sur un ou plusieurs services"
 
     rec_name = record_data.get("name")
-    rec_start_ts = record_data.get("start_ts")
-    rec_end_ts = record_data.get("end_ts")
+    rec_start_ts = record_data.get("start_ts") or 0
+    rec_end_ts = record_data.get("end_ts") or 0
     
-    has_valid_record = rec_name and rec_start_ts and rec_start_ts > 0
-    start_dt_str = datetime.fromtimestamp(rec_start_ts).strftime("%d/%m/%Y à %H:%M") if has_valid_record else "--"
-    end_dt_str = datetime.fromtimestamp(rec_end_ts).strftime("%d/%m/%Y à %H:%M") if (has_valid_record and rec_end_ts) else "maintenant"
+    has_valid_record = rec_name and rec_start_ts > 0
 
     html = f"""<!DOCTYPE html>
 <html lang="fr">
@@ -217,7 +212,7 @@ def generate_html(services_data, global_status, history_data, record_data):
             gap: 2px;
             height: 28px;
             align-items: flex-end;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.35rem;
         }}
         .bar {{
             flex: 1;
@@ -233,11 +228,12 @@ def generate_html(services_data, global_status, history_data, record_data):
         .bar.partial {{ background-color: var(--partial); }}
         .bar.nodata {{ background-color: #21262d; }}
 
-        .history-legend {{
+        .history-ticks {{
             display: flex;
             justify-content: space-between;
-            font-size: 0.75rem;
+            font-size: 0.725rem;
             color: var(--text-muted);
+            padding: 0 2px;
         }}
 
         .tooltip {{
@@ -271,14 +267,14 @@ def generate_html(services_data, global_status, history_data, record_data):
     <div class="container">
         <div class="header">
             <h1>Statut des Services</h1>
-            <p>Dernière vérification : {now_str}</p>
+            <p>Dernière vérification : <span id="last-check-time" data-ts="{now_ts}">--</span></p>
         </div>
 
         <div class="record-card">
             <span class="record-icon">🏆</span>
             <div class="record-content">
-                Service en ligne le plus longtemps : <strong>{rec_name if has_valid_record else 'Initialisation...'}</strong>
-                {" , up pendant <strong id=\"record-timer\" data-start=\"" + str(rec_start_ts) + "\" data-end=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">--</strong>, du " + start_dt_str + " à " + end_dt_str + "." if has_valid_record else "."}
+                Gagnant : <strong>{rec_name if has_valid_record else 'Initialisation...'}</strong>
+                {" , up pendant <strong id=\"record-timer\" data-start=\"" + str(rec_start_ts) + "\" data-end=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">--</strong>, du <span id=\"rec-start\" data-ts=\"" + str(rec_start_ts) + "\">--</span> au <span id=\"rec-end\" data-ts=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">maintenant</span>." if has_valid_record else "."}
             </div>
         </div>
 
@@ -287,7 +283,7 @@ def generate_html(services_data, global_status, history_data, record_data):
         </div>
 
         <div class="controls">
-            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">Historique (60 bâtonnets)</span>
+            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">Historique</span>
             <div class="timeframe-selector">
                 <button class="tf-btn" onclick="setTimeframe('5h')">5h</button>
                 <button class="tf-btn" onclick="setTimeframe('1j')">1j</button>
@@ -321,10 +317,7 @@ def generate_html(services_data, global_status, history_data, record_data):
                 </div>
                 <div class="timer-info">{timer_prefix} <strong data-since="{s['last_change']}">--</strong></div>
                 <div class="history-bars" id="bars-{s['id']}"></div>
-                <div class="history-legend">
-                    <span id="legend-start-{s['id']}">--</span>
-                    <span>Maintenant</span>
-                </div>
+                <div class="history-ticks" id="ticks-{s['id']}"></div>
             </div>"""
 
     html += f"""
@@ -367,6 +360,17 @@ def generate_html(services_data, global_status, history_data, record_data):
             }}
         }}
 
+        function formatTick(ts, totalSecs) {{
+            const d = new Date(ts * 1000);
+            if (totalSecs <= 86400) {{
+                return d.toLocaleTimeString([], {{ hour: '2-digit', minute: '2-digit' }});
+            }} else if (totalSecs <= 7 * 86400) {{
+                return d.toLocaleDateString([], {{ day: 'numeric', month: 'short' }}) + " " + d.toLocaleTimeString([], {{ hour: '2-digit', minute: '2-digit' }});
+            }} else {{
+                return d.toLocaleDateString([], {{ day: 'numeric', month: 'short' }});
+            }}
+        }}
+
         function setTimeframe(tf) {{
             currentTf = tf;
             document.querySelectorAll('.tf-btn').forEach(btn => {{
@@ -381,10 +385,11 @@ def generate_html(services_data, global_status, history_data, record_data):
             document.querySelectorAll('.service-card').forEach(card => {{
                 const sid = card.getAttribute('data-service-id');
                 const container = document.getElementById('bars-' + sid);
-                const legendStart = document.getElementById('legend-start-' + sid);
+                const ticksContainer = document.getElementById('ticks-' + sid);
                 const statsContainer = document.getElementById('stats-' + sid);
                 
                 container.innerHTML = '';
+                ticksContainer.innerHTML = '';
 
                 const sHistory = rawHistory[sid] || {{}};
                 const tsKeys = Object.keys(sHistory).map(Number).sort((a, b) => a - b);
@@ -393,15 +398,6 @@ def generate_html(services_data, global_status, history_data, record_data):
                 const totalSecs = getTimeframeSeconds(currentTf, firstTs);
                 const barSecs = totalSecs / BARS_COUNT;
                 const startSecs = now - totalSecs;
-
-                if (currentTf === 'tout') {{
-                    const d = new Date(firstTs * 1000);
-                    legendStart.innerText = "Depuis le " + d.toLocaleDateString('fr-FR');
-                }} else if (currentTf.endsWith('h')) {{
-                    legendStart.innerText = "Il y a " + currentTf;
-                }} else {{
-                    legendStart.innerText = "Il y a " + currentTf.replace('j', ' jours');
-                }}
 
                 let totalUpAll = 0;
                 let totalChecksAll = 0;
@@ -415,7 +411,8 @@ def generate_html(services_data, global_status, history_data, record_data):
                     let bTotal = 0;
 
                     for (const ts of tsKeys) {{
-                        if (ts >= bStart && ts < bEnd) {{
+                        const inRange = (i === BARS_COUNT - 1) ? (ts >= bStart && ts <= bEnd + 2) : (ts >= bStart && ts < bEnd);
+                        if (inRange) {{
                             const slot = sHistory[ts];
                             bUp += slot[0];
                             bTotal += slot[1];
@@ -432,26 +429,43 @@ def generate_html(services_data, global_status, history_data, record_data):
                     const dEnd = new Date(bEnd * 1000);
                     let timeStr = "";
                     if (totalSecs <= 86400) {{
-                        timeStr = dStart.toLocaleTimeString('fr-FR', {{hour:'2-digit', minute:'2-digit'}}) + " à " + dEnd.toLocaleTimeString('fr-FR', {{hour:'2-digit', minute:'2-digit'}});
+                        timeStr = dStart.toLocaleTimeString([], {{hour:'2-digit', minute:'2-digit'}}) + " à " + dEnd.toLocaleTimeString([], {{hour:'2-digit', minute:'2-digit'}});
                     }} else {{
-                        timeStr = dStart.toLocaleDateString('fr-FR', {{day:'numeric', month:'short'}}) + " " + dStart.toLocaleTimeString('fr-FR', {{hour:'2-digit', minute:'2-digit'}});
+                        timeStr = dStart.toLocaleDateString([], {{day:'numeric', month:'short'}}) + " " + dStart.toLocaleTimeString([], {{hour:'2-digit', minute:'2-digit'}});
                     }}
 
                     if (bTotal === 0) {{
                         bar.classList.add('nodata');
                         bar.innerHTML = `<div class="tooltip">${{timeStr}}<br>Aucune donnée</div>`;
                     }} else {{
-                        const pct = Math.round((bUp / bTotal) * 100);
+                        const pct = (bUp / bTotal) * 100;
+                        const pctRound = Math.round(pct);
                         const downRatio = (bTotal - bUp) / bTotal;
                         totalDowntimeSecs += downRatio * barSecs;
 
-                        if (pct < 95 && pct > 0) bar.classList.add('partial');
-                        else if (pct === 0) bar.classList.add('down');
+                        if (bUp === 0) {{
+                            bar.classList.add('down');
+                        }} else if (bUp < bTotal) {{
+                            bar.classList.add('partial');
+                        }}
 
-                        bar.innerHTML = `<div class="tooltip">${{timeStr}}<br><strong>${{pct}}% d'uptime</strong> (${{bUp}}/${{bTotal}})</div>`;
+                        bar.innerHTML = `<div class="tooltip">${{timeStr}}<br><strong>${{pctRound}}% d'uptime</strong> (${{bUp}}/${{bTotal}})</div>`;
                     }}
                     container.appendChild(bar);
                 }}
+
+                // Génération des repères temporels (5 repères)
+                const tickRatios = [0, 0.25, 0.50, 0.75, 1.0];
+                tickRatios.forEach(r => {{
+                    const span = document.createElement('span');
+                    if (r === 1.0) {{
+                        span.innerText = "Maintenant";
+                    }} else {{
+                        const tickTs = startSecs + (totalSecs * r);
+                        span.innerText = formatTick(tickTs, totalSecs);
+                    }}
+                    ticksContainer.appendChild(span);
+                }});
 
                 const globalPct = totalChecksAll > 0 ? ((totalUpAll / totalChecksAll) * 100).toFixed(1) : "100.0";
                 const dtFormatted = formatDuration(totalDowntimeSecs);
@@ -461,6 +475,43 @@ def generate_html(services_data, global_status, history_data, record_data):
                     <div class="downtime-tag">Downtime : ${{dtFormatted}}</div>
                 `;
             }});
+        }}
+
+        function initLocalDates() {{
+            const lcEl = document.getElementById('last-check-time');
+            if (lcEl) {{
+                const ts = parseInt(lcEl.getAttribute('data-ts'));
+                if (ts) {{
+                    lcEl.innerText = new Date(ts * 1000).toLocaleString([], {{
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit', second: '2-digit'
+                    }});
+                }}
+            }}
+
+            const startEl = document.getElementById('rec-start');
+            if (startEl) {{
+                const ts = parseInt(startEl.getAttribute('data-ts'));
+                if (ts > 0) {{
+                    startEl.innerText = new Date(ts * 1000).toLocaleString([], {{
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                    }});
+                }}
+            }}
+
+            const endEl = document.getElementById('rec-end');
+            if (endEl) {{
+                const ts = parseInt(endEl.getAttribute('data-ts'));
+                if (ts > 0) {{
+                    endEl.innerText = new Date(ts * 1000).toLocaleString([], {{
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                    }});
+                }} else {{
+                    endEl.innerText = "maintenant";
+                }}
+            }}
         }}
 
         function updateTimers() {{
@@ -486,6 +537,7 @@ def generate_html(services_data, global_status, history_data, record_data):
             }}
         }}
 
+        initLocalDates();
         setInterval(updateTimers, 1000);
         updateTimers();
         renderHistory();
@@ -560,7 +612,6 @@ def main():
             "last_change": last_change
         })
 
-    # Auto-initialisation ou mise à jour du record d'uptime
     best_dur = record.get("duration", 0)
     
     for s in SERVICES:
@@ -588,7 +639,7 @@ def main():
         "_meta": old_state.get("_meta", {})
     }
 
-    generate_html(services_output, all_up, history, record)
+    generate_html(services_output, all_up, history, record, now_ts)
 
     last_push = old_state.get("_meta", {}).get("last_push", 0)
     should_push = has_changed or (now_ts - last_push >= 3600)
@@ -602,9 +653,9 @@ def main():
             msg = "Alerte : Changement d'état" if has_changed else "Mise à jour automatique historique"
             subprocess.run(["git", "-C", BASE_DIR, "commit", "-m", msg], check=True)
             subprocess.run(["git", "-C", BASE_DIR, "push", "origin", "main"], check=True)
-            print(f"[{datetime.now()}] Git push effectué ({msg})")
+            print(f"[{now_ts}] Git push effectué ({msg})")
         except Exception as e:
-            print(f"[{datetime.now()}] Erreur Git : {e}")
+            print(f"[{now_ts}] Erreur Git : {e}")
     else:
         save_state(save_data)
 
