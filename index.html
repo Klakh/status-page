@@ -29,6 +29,36 @@
         display: flex;
         justify-content: center;
     }
+
+    /* Décor de fond. Deux couches fixes : l'image, très atténuée pour rester
+       derrière le contenu et non en concurrence avec lui, puis un dégradé qui
+       ramène les bords vers la couleur de la page. Un dégradé opaque plutôt
+       qu'un mask CSS : la couleur de fond est connue, le rendu est identique et
+       ne dépend d'aucun support de masquage. */
+    body::before,
+    body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+    }
+    body::before {
+        background: url("bg.webp") center / cover no-repeat;
+        opacity: 0.34;
+    }
+    body::after {
+        background: radial-gradient(ellipse 85% 70% at 50% 42%,
+            rgba(13, 17, 23, 0) 0%,
+            rgba(13, 17, 23, 0.40) 40%,
+            rgba(13, 17, 23, 0.88) 74%,
+            var(--bg) 100%);
+    }
+    /* Les couches de fond sont positionnées, donc peintes au-dessus du contenu
+       en flux : on remonte explicitement le contenu plutôt que de recourir à un
+       z-index négatif, qui passerait sous le fond de body. */
+    .container, noscript { position: relative; z-index: 1; }
+
     .container { width: 100%; max-width: 760px; }
 
     .topbar { display: flex; justify-content: flex-end; margin-bottom: 0.5rem; }
@@ -66,14 +96,14 @@
         border-radius: 10px;
         font-size: 0.7rem;
         font-weight: 700;
-        background: rgba(210, 153, 34, 0.15);
+        background: linear-gradient(rgba(210, 153, 34, 0.15), rgba(210, 153, 34, 0.15)), var(--bg);
         border: 1px solid var(--partial);
         color: var(--partial);
     }
     .stale .stale-tag { display: inline-block; }
 
     .record-card {
-        background: rgba(210, 153, 34, 0.08);
+        background: linear-gradient(rgba(210, 153, 34, 0.08), rgba(210, 153, 34, 0.08)), var(--bg);
         border: 1px solid rgba(210, 153, 34, 0.3);
         border-radius: 8px;
         padding: 0.85rem 1.75rem;
@@ -104,8 +134,8 @@
         background: #21262d;
         color: var(--text-muted);
     }
-    .global-banner.up { background: rgba(35, 134, 54, 0.15); border-color: var(--up); color: #3fb950; }
-    .global-banner.down { background: rgba(218, 54, 51, 0.15); border-color: var(--down); color: #f85149; }
+    .global-banner.up { background: linear-gradient(rgba(35, 134, 54, 0.15), rgba(35, 134, 54, 0.15)), var(--bg); border-color: var(--up); color: #3fb950; }
+    .global-banner.down { background: linear-gradient(rgba(218, 54, 51, 0.15), rgba(218, 54, 51, 0.15)), var(--bg); border-color: var(--down); color: #f85149; }
 
     .controls {
         display: flex;
@@ -167,8 +197,8 @@
         text-transform: uppercase;
         white-space: nowrap;
     }
-    .badge.up { background: rgba(35, 134, 54, 0.2); color: #3fb950; border: 1px solid var(--up); }
-    .badge.down { background: rgba(218, 54, 51, 0.2); color: #f85149; border: 1px solid var(--down); }
+    .badge.up { background: linear-gradient(rgba(35, 134, 54, 0.2), rgba(35, 134, 54, 0.2)), var(--card-bg); color: #3fb950; border: 1px solid var(--up); }
+    .badge.down { background: linear-gradient(rgba(218, 54, 51, 0.2), rgba(218, 54, 51, 0.2)), var(--card-bg); color: #f85149; border: 1px solid var(--down); }
 
     .timer-info { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; }
 
