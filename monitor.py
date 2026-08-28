@@ -53,6 +53,13 @@ def clean_old_history(history, now_ts):
                 pass
     return cleaned
 
+def check_git_changes():
+    try:
+        res = subprocess.run(["git", "-C", BASE_DIR, "status", "--porcelain"], capture_output=True, text=True)
+        return len(res.stdout.strip()) > 0
+    except Exception:
+        return False
+
 def generate_html(services_data, global_status, history_data, record_data, now_ts):
     history_json = json.dumps(history_data)
     
@@ -102,15 +109,19 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
             background: rgba(210, 153, 34, 0.08);
             border: 1px solid rgba(210, 153, 34, 0.3);
             border-radius: 8px;
-            padding: 0.85rem 1.25rem;
-            margin-bottom: 1.5rem;
+            padding: 0.85rem 1.75rem;
+            margin: 0 auto 1.5rem auto;
+            width: fit-content;
+            max-width: 100%;
             font-size: 0.875rem;
             display: flex;
             align-items: center;
+            justify-content: center;
+            text-align: center;
             gap: 0.75rem;
         }}
-        .record-icon {{ font-size: 1.25rem; }}
-        .record-content {{ line-height: 1.4; color: var(--text-main); }}
+        .record-icon {{ font-size: 1.25rem; flex-shrink: 0; }}
+        .record-content {{ line-height: 1.4; color: var(--text-main); text-align: center; }}
         .record-content strong {{ color: var(--accent-gold); }}
 
         .global-banner {{
@@ -274,7 +285,7 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
             <span class="record-icon">🏆</span>
             <div class="record-content">
                 Gagnant : <strong>{rec_name if has_valid_record else 'Initialisation...'}</strong>
-                {" , up pendant <strong id=\"record-timer\" data-start=\"" + str(rec_start_ts) + "\" data-end=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">--</strong>, du <span id=\"rec-start\" data-ts=\"" + str(rec_start_ts) + "\">--</span> <span id=\"rec-prep\">à</span> <span id=\"rec-end\" data-ts=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">maintenant</span>." if has_valid_record else "."}
+                {", up pendant <strong id=\"record-timer\" data-start=\"" + str(rec_start_ts) + "\" data-end=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">--</strong>, du <span id=\"rec-start\" data-ts=\"" + str(rec_start_ts) + "\">--</span> <span id=\"rec-prep\">à</span> <span id=\"rec-end\" data-ts=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">maintenant</span>." if has_valid_record else "."}
             </div>
         </div>
 
@@ -641,10 +652,14 @@ def main():
         "_meta": old_state.get("_meta", {})
     }
 
+    # Génération du HTML
     generate_html(services_output, all_up, history, record, now_ts)
 
+    # Vérification des modifications dans Git (index.html, monitor.py, state.json...)
+    has_git_changes = check_git_changes()
     last_push = old_state.get("_meta", {}).get("last_push", 0)
-    should_push = has_changed or (now_ts - last_push >= 3600)
+    
+    should_push = has_changed or has_git_changes or (now_ts - last_push >= 3600)
 
     if should_push:
         save_data["_meta"]["last_push"] = now_ts
@@ -652,7 +667,7 @@ def main():
         
         try:
             subprocess.run(["git", "-C", BASE_DIR, "add", "."], check=True)
-            msg = "Alerte : Changement d'état" if has_changed else "Mise à jour automatique historique"
+            msg = "Alerte : Changement d'état" if has_changed else "Mise à jour automatique statut / visuel"
             subprocess.run(["git", "-C", BASE_DIR, "commit", "-m", msg], check=True)
             subprocess.run(["git", "-C", BASE_DIR, "push", "origin", "main"], check=True)
             print(f"[{now_ts}] Git push effectué ({msg})")
