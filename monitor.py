@@ -7,6 +7,7 @@ import subprocess
 from datetime import datetime, timedelta
 
 # --- CONFIGURATION DES SERVICES ---
+# Tu pourras ajouter d'autres blocs {} dans la liste plus tard.
 SERVICES = [
     {
         "id": "ktv",
@@ -197,7 +198,7 @@ def generate_html(services_data, global_status, history_data, record_data):
         .downtime-tag {{
             font-size: 0.75rem;
             color: var(--down);
-            margin-left: 0.4rem;
+            margin-top: 0.15rem;
         }}
         .badge {{
             font-size: 0.75rem;
@@ -561,7 +562,6 @@ def main():
 
     # Auto-initialisation ou mise à jour du record d'uptime
     best_dur = record.get("duration", 0)
-    best_service = record.get("name")
     
     for s in SERVICES:
         sid = s["id"]
@@ -574,7 +574,6 @@ def main():
                 record["start_ts"] = start_ts
             elif current_dur > best_dur or not record.get("start_ts"):
                 best_dur = current_dur
-                best_service = s["name"]
                 record = {
                     "name": s["name"],
                     "start_ts": start_ts,
