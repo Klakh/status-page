@@ -42,7 +42,6 @@ def save_state(state):
         json.dump(state, f, indent=2)
 
 def clean_old_history(history, now_ts):
-    # Conservation de 180 jours max (15 552 000 secondes)
     cutoff = now_ts - (180 * 86400)
     cleaned = {}
     for sid, slots in history.items():
@@ -52,7 +51,7 @@ def clean_old_history(history, now_ts):
                 if int(ts_str) >= cutoff:
                     cleaned[sid][ts_str] = val
             except ValueError:
-                pass # Purge des anciennes données au format YYYY-MM-DD
+                pass
     return cleaned
 
 def generate_html(services_data, global_status, history_data, record_data):
@@ -62,12 +61,13 @@ def generate_html(services_data, global_status, history_data, record_data):
     global_banner_class = "up" if global_status else "down"
     global_banner_text = "Tous les systèmes sont opérationnels" if global_status else "Perturbation sur un ou plusieurs services"
 
-    rec_name = record_data.get("name", "N/A")
-    rec_start_ts = record_data.get("start_ts", 0)
+    rec_name = record_data.get("name")
+    rec_start_ts = record_data.get("start_ts")
     rec_end_ts = record_data.get("end_ts")
     
-    start_dt_str = datetime.fromtimestamp(rec_start_ts).strftime("%d/%m/%Y") if rec_start_ts else "--"
-    end_dt_str = datetime.fromtimestamp(rec_end_ts).strftime("%d/%m/%Y à %H:%M") if rec_end_ts else "maintenant"
+    has_valid_record = rec_name and rec_start_ts and rec_start_ts > 0
+    start_dt_str = datetime.fromtimestamp(rec_start_ts).strftime("%d/%m/%Y à %H:%M") if has_valid_record else "--"
+    end_dt_str = datetime.fromtimestamp(rec_end_ts).strftime("%d/%m/%Y à %H:%M") if (has_valid_record and rec_end_ts) else "maintenant"
 
     html = f"""<!DOCTYPE html>
 <html lang="fr">
@@ -188,6 +188,17 @@ def generate_html(services_data, global_status, history_data, record_data):
             object-fit: contain;
         }}
         .service-meta {{ display: flex; align-items: center; gap: 0.75rem; }}
+        .stats-summary {{
+            font-size: 0.825rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-align: right;
+        }}
+        .downtime-tag {{
+            font-size: 0.75rem;
+            color: var(--down);
+            margin-left: 0.4rem;
+        }}
         .badge {{
             font-size: 0.75rem;
             font-weight: 700;
@@ -265,9 +276,8 @@ def generate_html(services_data, global_status, history_data, record_data):
         <div class="record-card">
             <span class="record-icon">🏆</span>
             <div class="record-content">
-                Service en ligne le plus longtemps : <strong>{rec_name}</strong>, 
-                up pendant <strong id="record-timer" data-start="{rec_start_ts}" data-end="{rec_end_ts if rec_end_ts else ''}">--</strong>, 
-                du {start_dt_str} à {end_dt_str}.
+                Service en ligne le plus longtemps : <strong>{rec_name if has_valid_record else 'Initialisation...'}</strong>
+                {" , up pendant <strong id=\"record-timer\" data-start=\"" + str(rec_start_ts) + "\" data-end=\"" + (str(rec_end_ts) if rec_end_ts else "") + "\">--</strong>, du " + start_dt_str + " à " + end_dt_str + "." if has_valid_record else "."}
             </div>
         </div>
 
@@ -302,7 +312,9 @@ def generate_html(services_data, global_status, history_data, record_data):
                         <span>{s['name']} ↗</span>
                     </a>
                     <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-{s['id']}" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <div class="stats-summary" id="stats-{s['id']}">
+                            <span class="uptime-pct">100%</span>
+                        </div>
                         <span class="badge {status_class}">{status_label}</span>
                     </div>
                 </div>
@@ -325,16 +337,18 @@ def generate_html(services_data, global_status, history_data, record_data):
         let currentTf = '90j';
 
         function formatDuration(diff) {{
+            if (diff <= 0) return "0s";
             const days = Math.floor(diff / 86400);
             const hours = Math.floor((diff % 86400) / 3600);
             const mins = Math.floor((diff % 3600) / 60);
-            const secs = diff % 60;
+            const secs = Math.floor(diff % 60);
             
             let res = "";
             if (days > 0) res += days + "j ";
             if (hours > 0 || days > 0) res += hours + "h ";
-            res += mins + "m " + secs + "s";
-            return res;
+            if (mins > 0 || hours > 0 || days > 0) res += mins + "m ";
+            if (secs > 0 || res === "") res += secs + "s";
+            return res.trim();
         }}
 
         function getTimeframeSeconds(tf, firstTs) {{
@@ -367,7 +381,7 @@ def generate_html(services_data, global_status, history_data, record_data):
                 const sid = card.getAttribute('data-service-id');
                 const container = document.getElementById('bars-' + sid);
                 const legendStart = document.getElementById('legend-start-' + sid);
-                const uptimeLabel = document.getElementById('uptime-' + sid);
+                const statsContainer = document.getElementById('stats-' + sid);
                 
                 container.innerHTML = '';
 
@@ -390,6 +404,7 @@ def generate_html(services_data, global_status, history_data, record_data):
 
                 let totalUpAll = 0;
                 let totalChecksAll = 0;
+                let totalDowntimeSecs = 0;
 
                 for (let i = 0; i < BARS_COUNT; i++) {{
                     const bStart = startSecs + (i * barSecs);
@@ -426,6 +441,9 @@ def generate_html(services_data, global_status, history_data, record_data):
                         bar.innerHTML = `<div class="tooltip">${{timeStr}}<br>Aucune donnée</div>`;
                     }} else {{
                         const pct = Math.round((bUp / bTotal) * 100);
+                        const downRatio = (bTotal - bUp) / bTotal;
+                        totalDowntimeSecs += downRatio * barSecs;
+
                         if (pct < 95 && pct > 0) bar.classList.add('partial');
                         else if (pct === 0) bar.classList.add('down');
 
@@ -435,7 +453,12 @@ def generate_html(services_data, global_status, history_data, record_data):
                 }}
 
                 const globalPct = totalChecksAll > 0 ? ((totalUpAll / totalChecksAll) * 100).toFixed(1) : "100.0";
-                uptimeLabel.innerText = globalPct + "%";
+                const dtFormatted = formatDuration(totalDowntimeSecs);
+                
+                statsContainer.innerHTML = `
+                    <span class="uptime-pct">${{globalPct}}%</span>
+                    <div class="downtime-tag">Downtime : ${{dtFormatted}}</div>
+                `;
             }});
         }}
 
@@ -444,17 +467,21 @@ def generate_html(services_data, global_status, history_data, record_data):
             
             document.querySelectorAll('[data-since]').forEach(el => {{
                 const since = parseInt(el.getAttribute('data-since'));
-                const diff = Math.max(0, now - since);
-                el.innerText = formatDuration(diff);
+                if (!isNaN(since) && since > 0) {{
+                    const diff = Math.max(0, now - since);
+                    el.innerText = formatDuration(diff);
+                }}
             }});
 
             const recEl = document.getElementById('record-timer');
             if (recEl) {{
                 const start = parseInt(recEl.getAttribute('data-start'));
                 const endAttr = recEl.getAttribute('data-end');
-                const end = endAttr ? parseInt(endAttr) : now;
-                const diff = Math.max(0, end - start);
-                recEl.innerText = formatDuration(diff);
+                if (!isNaN(start) && start > 0) {{
+                    const end = (endAttr && parseInt(endAttr) > 0) ? parseInt(endAttr) : now;
+                    const diff = Math.max(0, end - start);
+                    recEl.innerText = formatDuration(diff);
+                }}
             }}
         }}
 
@@ -470,7 +497,6 @@ def generate_html(services_data, global_status, history_data, record_data):
 
 def main():
     now_ts = int(time.time())
-    # Arrondi au créneau de 5 minutes le plus proche (300 secondes)
     slot_ts = (now_ts // 300) * 300
     
     old_state = load_state()
@@ -494,9 +520,8 @@ def main():
         prev_status = prev.get("status")
         last_change = prev.get("last_change", now_ts)
 
-        if prev_status != status_str:
+        if prev_status and prev_status != status_str:
             has_changed = True
-            
             if prev_status == "UP":
                 finished_dur = now_ts - last_change
                 if finished_dur >= record.get("duration", 0):
@@ -506,7 +531,6 @@ def main():
                         "end_ts": now_ts,
                         "duration": finished_dur
                     }
-            
             last_change = now_ts
 
         new_state[sid] = {
@@ -515,7 +539,6 @@ def main():
             "last_check": now_ts
         }
 
-        # Enregistrement dans le créneau de 5 minutes
         if sid not in history:
             history[sid] = {}
         
@@ -536,17 +559,22 @@ def main():
             "last_change": last_change
         })
 
-    # Évaluation des records en cours
+    # Auto-initialisation ou mise à jour du record d'uptime
+    best_dur = record.get("duration", 0)
+    best_service = record.get("name")
+    
     for s in SERVICES:
         sid = s["id"]
         if new_state[sid]["status"] == "UP":
             start_ts = new_state[sid]["last_change"]
             current_dur = now_ts - start_ts
             
-            if record.get("name") == s["name"] and record.get("end_ts") is None:
+            if record.get("name") == s["name"] and not record.get("end_ts"):
                 record["duration"] = current_dur
                 record["start_ts"] = start_ts
-            elif current_dur > record.get("duration", 0):
+            elif current_dur > best_dur or not record.get("start_ts"):
+                best_dur = current_dur
+                best_service = s["name"]
                 record = {
                     "name": s["name"],
                     "start_ts": start_ts,

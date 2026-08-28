@@ -117,6 +117,17 @@
             object-fit: contain;
         }
         .service-meta { display: flex; align-items: center; gap: 0.75rem; }
+        .stats-summary {
+            font-size: 0.825rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-align: right;
+        }
+        .downtime-tag {
+            font-size: 0.75rem;
+            color: var(--down);
+            margin-left: 0.4rem;
+        }
         .badge {
             font-size: 0.75rem;
             font-weight: 700;
@@ -188,15 +199,14 @@
     <div class="container">
         <div class="header">
             <h1>Statut des Services</h1>
-            <p>Dernière vérification : 28/08/2026 à 00:09:53</p>
+            <p>Dernière vérification : 28/08/2026 à 00:16:07</p>
         </div>
 
         <div class="record-card">
             <span class="record-icon">🏆</span>
             <div class="record-content">
-                Service en ligne le plus longtemps : <strong>N/A</strong>, 
-                up pendant <strong id="record-timer" data-start="0" data-end="">--</strong>, 
-                du -- à maintenant.
+                Service en ligne le plus longtemps : <strong>K.tv</strong>
+                 , up pendant <strong id="record-timer" data-start="1787875792" data-end="">--</strong>, du 28/08/2026 à 00:09 à maintenant.
             </div>
         </div>
 
@@ -225,7 +235,9 @@
                         <span>K.tv ↗</span>
                     </a>
                     <div class="service-meta">
-                        <span class="uptime-pct" id="uptime-ktv" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">100%</span>
+                        <div class="stats-summary" id="stats-ktv">
+                            <span class="uptime-pct">100%</span>
+                        </div>
                         <span class="badge up">En ligne</span>
                     </div>
                 </div>
@@ -241,21 +253,23 @@
     </div>
 
     <script>
-        const rawHistory = {"ktv": {"1787875500": [1, 1]}};
+        const rawHistory = {"ktv": {"1787875500": [1, 1], "1787876100": [2, 2]}};
         const BARS_COUNT = 60;
         let currentTf = '90j';
 
         function formatDuration(diff) {
+            if (diff <= 0) return "0s";
             const days = Math.floor(diff / 86400);
             const hours = Math.floor((diff % 86400) / 3600);
             const mins = Math.floor((diff % 3600) / 60);
-            const secs = diff % 60;
+            const secs = Math.floor(diff % 60);
             
             let res = "";
             if (days > 0) res += days + "j ";
             if (hours > 0 || days > 0) res += hours + "h ";
-            res += mins + "m " + secs + "s";
-            return res;
+            if (mins > 0 || hours > 0 || days > 0) res += mins + "m ";
+            if (secs > 0 || res === "") res += secs + "s";
+            return res.trim();
         }
 
         function getTimeframeSeconds(tf, firstTs) {
@@ -288,7 +302,7 @@
                 const sid = card.getAttribute('data-service-id');
                 const container = document.getElementById('bars-' + sid);
                 const legendStart = document.getElementById('legend-start-' + sid);
-                const uptimeLabel = document.getElementById('uptime-' + sid);
+                const statsContainer = document.getElementById('stats-' + sid);
                 
                 container.innerHTML = '';
 
@@ -311,6 +325,7 @@
 
                 let totalUpAll = 0;
                 let totalChecksAll = 0;
+                let totalDowntimeSecs = 0;
 
                 for (let i = 0; i < BARS_COUNT; i++) {
                     const bStart = startSecs + (i * barSecs);
@@ -347,6 +362,9 @@
                         bar.innerHTML = `<div class="tooltip">${timeStr}<br>Aucune donnée</div>`;
                     } else {
                         const pct = Math.round((bUp / bTotal) * 100);
+                        const downRatio = (bTotal - bUp) / bTotal;
+                        totalDowntimeSecs += downRatio * barSecs;
+
                         if (pct < 95 && pct > 0) bar.classList.add('partial');
                         else if (pct === 0) bar.classList.add('down');
 
@@ -356,7 +374,12 @@
                 }
 
                 const globalPct = totalChecksAll > 0 ? ((totalUpAll / totalChecksAll) * 100).toFixed(1) : "100.0";
-                uptimeLabel.innerText = globalPct + "%";
+                const dtFormatted = formatDuration(totalDowntimeSecs);
+                
+                statsContainer.innerHTML = `
+                    <span class="uptime-pct">${globalPct}%</span>
+                    <div class="downtime-tag">Downtime : ${dtFormatted}</div>
+                `;
             });
         }
 
@@ -365,17 +388,21 @@
             
             document.querySelectorAll('[data-since]').forEach(el => {
                 const since = parseInt(el.getAttribute('data-since'));
-                const diff = Math.max(0, now - since);
-                el.innerText = formatDuration(diff);
+                if (!isNaN(since) && since > 0) {
+                    const diff = Math.max(0, now - since);
+                    el.innerText = formatDuration(diff);
+                }
             });
 
             const recEl = document.getElementById('record-timer');
             if (recEl) {
                 const start = parseInt(recEl.getAttribute('data-start'));
                 const endAttr = recEl.getAttribute('data-end');
-                const end = endAttr ? parseInt(endAttr) : now;
-                const diff = Math.max(0, end - start);
-                recEl.innerText = formatDuration(diff);
+                if (!isNaN(start) && start > 0) {
+                    const end = (endAttr && parseInt(endAttr) > 0) ? parseInt(endAttr) : now;
+                    const diff = Math.max(0, end - start);
+                    recEl.innerText = formatDuration(diff);
+                }
             }
         }
 
