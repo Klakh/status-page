@@ -1,477 +1,839 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>État des Services — Keeklah</title>
-    <style>
-        :root {
-            --bg: #0d1117;
-            --card-bg: #161b22;
-            --border: #30363d;
-            --text-main: #f0f6fc;
-            --text-muted: #8b949e;
-            --up: #238636;
-            --down: #da3633;
-            --partial: #d29922;
-            --accent-gold: #f2cc60;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: var(--bg);
-            color: var(--text-main);
-            padding: 2rem 1rem;
-            display: flex;
-            justify-content: center;
-        }
-        .container { width: 100%; max-width: 760px; }
-        
-        .header { text-align: center; margin-bottom: 1.5rem; }
-        .header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
-        .header p { color: var(--text-muted); font-size: 0.875rem; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Statut des Services — Keeklah</title>
+<link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48 64x64">
+<link rel="icon" type="image/png" href="icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0d1117">
+<style>
+    :root {
+        --bg: #0d1117;
+        --card-bg: #161b22;
+        --border: #30363d;
+        --text-main: #f0f6fc;
+        --text-muted: #8b949e;
+        --up: #238636;
+        --down: #da3633;
+        --partial: #d29922;
+        --accent-gold: #f2cc60;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background-color: var(--bg);
+        color: var(--text-main);
+        padding: 2rem 1rem;
+        display: flex;
+        justify-content: center;
+    }
+    .container { width: 100%; max-width: 760px; }
 
-        .record-card {
-            background: rgba(210, 153, 34, 0.08);
-            border: 1px solid rgba(210, 153, 34, 0.3);
-            border-radius: 8px;
-            padding: 0.85rem 1.75rem;
-            margin: 0 auto 1.5rem auto;
-            width: fit-content;
-            max-width: 100%;
-            font-size: 0.875rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            gap: 0.75rem;
-        }
-        .record-icon { font-size: 1.25rem; flex-shrink: 0; }
-        .record-content { line-height: 1.4; color: var(--text-main); text-align: center; }
-        .record-content strong { color: var(--accent-gold); }
+    .topbar { display: flex; justify-content: flex-end; margin-bottom: 0.5rem; }
 
-        .global-banner {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.75rem;
-            padding: 0.85rem;
-            border-radius: 8px;
-            font-weight: 600;
-            margin-bottom: 2rem;
-            border: 1px solid transparent;
-        }
-        .global-banner.up { background: rgba(35, 134, 54, 0.15); border-color: var(--up); color: #3fb950; }
-        .global-banner.down { background: rgba(218, 54, 51, 0.15); border-color: var(--down); color: #f85149; }
-        
-        .controls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-        .timeframe-selector {
-            display: flex;
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 3px;
-        }
-        .tf-btn {
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            padding: 0.35rem 0.65rem;
-            font-size: 0.8rem;
-            font-weight: 600;
-            cursor: pointer;
-            border-radius: 4px;
-            transition: all 0.2s;
-        }
-        .tf-btn.active { background: #21262d; color: var(--text-main); }
+    .segmented {
+        display: flex;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 3px;
+    }
+    .segmented button {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        padding: 0.35rem 0.65rem;
+        font: inherit;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background-color 0.15s, color 0.15s;
+    }
+    .segmented button:hover { color: var(--text-main); }
+    .segmented button[aria-pressed="true"] { background: #21262d; color: var(--text-main); }
+    .lang-selector button { padding: 0.3rem 0.55rem; letter-spacing: 0.03em; }
 
-        .service-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1.25rem;
-            margin-bottom: 1.25rem;
-        }
-        .service-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }
-        .service-title {
-            display: flex;
-            align-items: center;
-            gap: 0.6rem;
-            font-weight: 600;
-            font-size: 1.1rem;
-            text-decoration: none;
-            color: var(--text-main);
-        }
-        .service-icon {
-            width: 22px;
-            height: 22px;
-            border-radius: 4px;
-            object-fit: contain;
-        }
-        .service-meta { display: flex; align-items: center; gap: 0.75rem; }
-        .stats-summary {
-            font-size: 0.825rem;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-align: right;
-        }
-        .downtime-tag {
-            font-size: 0.75rem;
-            color: var(--down);
-            margin-top: 0.15rem;
-        }
-        .badge {
-            font-size: 0.75rem;
-            font-weight: 700;
-            padding: 0.25rem 0.6rem;
-            border-radius: 12px;
-            text-transform: uppercase;
-        }
-        .badge.up { background: rgba(35, 134, 54, 0.2); color: #3fb950; border: 1px solid var(--up); }
-        .badge.down { background: rgba(218, 54, 51, 0.2); color: #f85149; border: 1px solid var(--down); }
+    .header { text-align: center; margin-bottom: 1.5rem; }
+    .header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .header p { color: var(--text-muted); font-size: 0.875rem; }
+    .stale-tag {
+        display: none;
+        margin-left: 0.4rem;
+        padding: 0.1rem 0.45rem;
+        border-radius: 10px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        background: rgba(210, 153, 34, 0.15);
+        border: 1px solid var(--partial);
+        color: var(--partial);
+    }
+    .stale .stale-tag { display: inline-block; }
 
-        .timer-info { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; }
-        
-        .history-bars {
-            display: flex;
-            gap: 2px;
-            height: 28px;
-            align-items: flex-end;
-            margin-bottom: 0.35rem;
-        }
-        .bar {
-            flex: 1;
-            height: 100%;
-            border-radius: 1.5px;
-            background-color: var(--up);
-            position: relative;
-            cursor: pointer;
-            transition: opacity 0.15s;
-        }
-        .bar:hover { opacity: 0.75; }
-        .bar.down { background-color: var(--down); }
-        .bar.partial { background-color: var(--partial); }
-        .bar.nodata { background-color: #21262d; }
+    .record-card {
+        background: rgba(210, 153, 34, 0.08);
+        border: 1px solid rgba(210, 153, 34, 0.3);
+        border-radius: 8px;
+        padding: 0.85rem 1.75rem;
+        margin: 0 auto 1.5rem auto;
+        width: fit-content;
+        max-width: 100%;
+        font-size: 0.875rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        gap: 0.75rem;
+    }
+    .record-icon { font-size: 1.25rem; flex-shrink: 0; }
+    .record-content { line-height: 1.4; color: var(--text-main); text-align: center; }
+    .record-content strong { color: var(--accent-gold); }
 
-        .history-ticks {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.725rem;
-            color: var(--text-muted);
-            padding: 0 2px;
-        }
+    .global-banner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        padding: 0.85rem;
+        border-radius: 8px;
+        font-weight: 600;
+        margin-bottom: 2rem;
+        border: 1px solid transparent;
+        background: #21262d;
+        color: var(--text-muted);
+    }
+    .global-banner.up { background: rgba(35, 134, 54, 0.15); border-color: var(--up); color: #3fb950; }
+    .global-banner.down { background: rgba(218, 54, 51, 0.15); border-color: var(--down); color: #f85149; }
 
-        .tooltip {
-            position: absolute;
-            bottom: 35px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #21262d;
-            color: var(--text-main);
-            border: 1px solid var(--border);
-            padding: 0.4rem 0.6rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            white-space: nowrap;
-            pointer-events: none;
-            display: none;
-            z-index: 20;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        }
-        .bar:hover .tooltip { display: block; }
+    .controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    .controls-label { font-size: 0.9rem; font-weight: 600; color: var(--text-muted); }
 
-        .footer {
-            text-align: center;
-            margin-top: 2rem;
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-    </style>
+    .service-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1.25rem;
+        margin-bottom: 1.25rem;
+    }
+    .service-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+    .service-title {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        font-weight: 600;
+        font-size: 1.1rem;
+        text-decoration: none;
+        color: var(--text-main);
+    }
+    .service-icon {
+        width: 22px;
+        height: 22px;
+        border-radius: 4px;
+        object-fit: contain;
+    }
+    .service-meta { display: flex; align-items: center; gap: 0.75rem; }
+    .stats-summary {
+        font-size: 0.825rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-align: right;
+    }
+    .downtime-tag {
+        font-size: 0.75rem;
+        color: var(--down);
+        margin-top: 0.15rem;
+        visibility: hidden;
+    }
+    .downtime-tag.on { visibility: visible; }
+    .badge {
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 0.25rem 0.6rem;
+        border-radius: 12px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .badge.up { background: rgba(35, 134, 54, 0.2); color: #3fb950; border: 1px solid var(--up); }
+    .badge.down { background: rgba(218, 54, 51, 0.2); color: #f85149; border: 1px solid var(--down); }
+
+    .timer-info { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; }
+
+    .history-bars {
+        display: flex;
+        gap: 2px;
+        height: 28px;
+        align-items: flex-end;
+        margin-bottom: 0.35rem;
+    }
+    .bar {
+        flex: 1;
+        height: 100%;
+        border-radius: 1.5px;
+        background-color: var(--up);
+        cursor: pointer;
+        transition: opacity 0.15s;
+    }
+    .bar:hover { opacity: 0.75; }
+    .bar.down { background-color: var(--down); }
+    .bar.partial { background-color: var(--partial); }
+    .bar.nodata { background-color: #21262d; }
+
+    .history-ticks {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.725rem;
+        color: var(--text-muted);
+        padding: 0 2px;
+    }
+
+    #tooltip {
+        position: fixed;
+        top: 0;
+        left: 0;
+        background: #21262d;
+        color: var(--text-main);
+        border: 1px solid var(--border);
+        padding: 0.4rem 0.6rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        line-height: 1.35;
+        white-space: pre;
+        pointer-events: none;
+        opacity: 0;
+        z-index: 20;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        transition: opacity 0.1s;
+    }
+    #tooltip.on { opacity: 1; }
+
+    .footer {
+        text-align: center;
+        margin-top: 2rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; }
+    }
+</style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>Statut des Services</h1>
-            <p>Dernière vérification : <span id="last-check-time" data-ts="1787878919">--</span></p>
-        </div>
-
-        <div class="record-card">
-            <span class="record-icon">🏆</span>
-            <div class="record-content">
-                Gagnant : <strong>K.tv</strong>
-                , up pendant <strong id="record-timer" data-start="1787779800" data-end="">--</strong>, du <span id="rec-start" data-ts="1787779800">--</span> <span id="rec-prep">à</span> <span id="rec-end" data-ts="">maintenant</span>.
-            </div>
-        </div>
-
-        <div class="global-banner up">
-            Tous les systèmes sont opérationnels
-        </div>
-
-        <div class="controls">
-            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">Historique</span>
-            <div class="timeframe-selector">
-                <button class="tf-btn" onclick="setTimeframe('5h')">5h</button>
-                <button class="tf-btn" onclick="setTimeframe('1j')">1j</button>
-                <button class="tf-btn" onclick="setTimeframe('7j')">7j</button>
-                <button class="tf-btn" onclick="setTimeframe('30j')">30j</button>
-                <button class="tf-btn active" onclick="setTimeframe('90j')">90j</button>
-                <button class="tf-btn" onclick="setTimeframe('tout')">Tout</button>
-            </div>
-        </div>
-
-        <div id="services-list">
-
-            <div class="service-card" data-service-id="ktv">
-                <div class="service-header">
-                    <a href="https://example.com" target="_blank" class="service-title">
-                        <img src="https://example.com/img/icons/ktv.webp" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>K.tv ↗</span>
-                    </a>
-                    <div class="service-meta">
-                        <div class="stats-summary" id="stats-ktv">
-                            <span class="uptime-pct">100%</span>
-                        </div>
-                        <span class="badge up">En ligne</span>
-                    </div>
-                </div>
-                <div class="timer-info">En ligne depuis : <strong data-since="1787779800">--</strong></div>
-                <div class="history-bars" id="bars-ktv"></div>
-                <div class="history-ticks" id="ticks-ktv"></div>
-            </div>
-        </div>
-        <div class="footer">Monitoring autonome par Raspberry Pi 1 B+</div>
+<div class="container">
+    <div class="topbar">
+        <div class="segmented lang-selector" id="lang-selector"></div>
     </div>
 
-    <script>
-        const rawHistory = {"ktv": {"1787875500": [1, 1], "1787876100": [2, 2], "1787877000": [1, 1], "1787877300": [1, 1], "1787877600": [1, 1], "1787779800": [1, 1], "1787780100": [1, 1], "1787780400": [1, 1], "1787780700": [1, 1], "1787781000": [1, 1], "1787781300": [1, 1], "1787781600": [1, 1], "1787781900": [1, 1], "1787782200": [1, 1], "1787782500": [1, 1], "1787782800": [1, 1], "1787783100": [1, 1], "1787783400": [1, 1], "1787783700": [1, 1], "1787784000": [1, 1], "1787784300": [1, 1], "1787784600": [1, 1], "1787784900": [1, 1], "1787785200": [1, 1], "1787785500": [1, 1], "1787785800": [1, 1], "1787786100": [1, 1], "1787786400": [1, 1], "1787786700": [1, 1], "1787787000": [1, 1], "1787787300": [1, 1], "1787787600": [1, 1], "1787787900": [1, 1], "1787788200": [1, 1], "1787788500": [1, 1], "1787788800": [1, 1], "1787789100": [1, 1], "1787789400": [1, 1], "1787789700": [1, 1], "1787790000": [1, 1], "1787790300": [1, 1], "1787790600": [1, 1], "1787790900": [1, 1], "1787791200": [1, 1], "1787791500": [1, 1], "1787791800": [1, 1], "1787792100": [1, 1], "1787792400": [1, 1], "1787792700": [1, 1], "1787793000": [1, 1], "1787793300": [1, 1], "1787793600": [1, 1], "1787793900": [1, 1], "1787794200": [1, 1], "1787794500": [1, 1], "1787794800": [1, 1], "1787795100": [1, 1], "1787795400": [1, 1], "1787795700": [1, 1], "1787796000": [1, 1], "1787796300": [1, 1], "1787796600": [1, 1], "1787796900": [1, 1], "1787797200": [1, 1], "1787797500": [1, 1], "1787797800": [1, 1], "1787798100": [1, 1], "1787798400": [1, 1], "1787798700": [1, 1], "1787799000": [1, 1], "1787799300": [1, 1], "1787799600": [1, 1], "1787799900": [1, 1], "1787800200": [1, 1], "1787800500": [1, 1], "1787800800": [1, 1], "1787801100": [1, 1], "1787801400": [1, 1], "1787801700": [1, 1], "1787802000": [1, 1], "1787802300": [1, 1], "1787802600": [1, 1], "1787802900": [1, 1], "1787803200": [1, 1], "1787803500": [1, 1], "1787803800": [1, 1], "1787804100": [1, 1], "1787804400": [1, 1], "1787804700": [1, 1], "1787805000": [1, 1], "1787805300": [1, 1], "1787805600": [1, 1], "1787805900": [1, 1], "1787806200": [1, 1], "1787806500": [1, 1], "1787806800": [1, 1], "1787807100": [1, 1], "1787807400": [1, 1], "1787807700": [1, 1], "1787808000": [1, 1], "1787808300": [1, 1], "1787808600": [1, 1], "1787808900": [1, 1], "1787809200": [1, 1], "1787809500": [1, 1], "1787809800": [1, 1], "1787810100": [1, 1], "1787810400": [1, 1], "1787810700": [1, 1], "1787811000": [1, 1], "1787811300": [1, 1], "1787811600": [1, 1], "1787811900": [1, 1], "1787812200": [1, 1], "1787812500": [1, 1], "1787812800": [1, 1], "1787813100": [1, 1], "1787813400": [1, 1], "1787813700": [1, 1], "1787814000": [1, 1], "1787814300": [1, 1], "1787814600": [1, 1], "1787814900": [1, 1], "1787815200": [1, 1], "1787815500": [1, 1], "1787815800": [1, 1], "1787816100": [1, 1], "1787816400": [1, 1], "1787816700": [1, 1], "1787817000": [1, 1], "1787817300": [1, 1], "1787817600": [1, 1], "1787817900": [1, 1], "1787818200": [1, 1], "1787818500": [1, 1], "1787818800": [1, 1], "1787819100": [1, 1], "1787819400": [1, 1], "1787819700": [1, 1], "1787820000": [1, 1], "1787820300": [1, 1], "1787820600": [1, 1], "1787820900": [1, 1], "1787821200": [1, 1], "1787821500": [1, 1], "1787821800": [1, 1], "1787822100": [1, 1], "1787822400": [1, 1], "1787822700": [1, 1], "1787823000": [1, 1], "1787823300": [1, 1], "1787823600": [1, 1], "1787823900": [1, 1], "1787824200": [1, 1], "1787824500": [1, 1], "1787824800": [1, 1], "1787825100": [1, 1], "1787825400": [1, 1], "1787825700": [1, 1], "1787826000": [1, 1], "1787826300": [1, 1], "1787826600": [1, 1], "1787826900": [1, 1], "1787827200": [1, 1], "1787827500": [1, 1], "1787827800": [1, 1], "1787828100": [1, 1], "1787828400": [1, 1], "1787828700": [1, 1], "1787829000": [1, 1], "1787829300": [1, 1], "1787829600": [1, 1], "1787829900": [1, 1], "1787830200": [1, 1], "1787830500": [1, 1], "1787830800": [1, 1], "1787831100": [1, 1], "1787831400": [1, 1], "1787831700": [1, 1], "1787832000": [1, 1], "1787832300": [1, 1], "1787832600": [1, 1], "1787832900": [1, 1], "1787833200": [1, 1], "1787833500": [1, 1], "1787833800": [1, 1], "1787834100": [1, 1], "1787834400": [1, 1], "1787834700": [1, 1], "1787835000": [1, 1], "1787835300": [1, 1], "1787835600": [1, 1], "1787835900": [1, 1], "1787836200": [1, 1], "1787836500": [1, 1], "1787836800": [1, 1], "1787837100": [1, 1], "1787837400": [1, 1], "1787837700": [1, 1], "1787838000": [1, 1], "1787838300": [1, 1], "1787838600": [1, 1], "1787838900": [1, 1], "1787839200": [1, 1], "1787839500": [1, 1], "1787839800": [1, 1], "1787840100": [1, 1], "1787840400": [1, 1], "1787840700": [1, 1], "1787841000": [1, 1], "1787841300": [1, 1], "1787841600": [1, 1], "1787841900": [1, 1], "1787842200": [1, 1], "1787842500": [1, 1], "1787842800": [1, 1], "1787843100": [1, 1], "1787843400": [1, 1], "1787843700": [1, 1], "1787844000": [1, 1], "1787844300": [1, 1], "1787844600": [1, 1], "1787844900": [1, 1], "1787845200": [1, 1], "1787845500": [1, 1], "1787845800": [1, 1], "1787846100": [1, 1], "1787846400": [1, 1], "1787846700": [1, 1], "1787847000": [1, 1], "1787847300": [1, 1], "1787847600": [1, 1], "1787847900": [1, 1], "1787848200": [1, 1], "1787848500": [1, 1], "1787848800": [1, 1], "1787849100": [1, 1], "1787849400": [1, 1], "1787849700": [1, 1], "1787850000": [1, 1], "1787850300": [1, 1], "1787850600": [1, 1], "1787850900": [1, 1], "1787851200": [1, 1], "1787851500": [1, 1], "1787851800": [1, 1], "1787852100": [1, 1], "1787852400": [1, 1], "1787852700": [1, 1], "1787853000": [1, 1], "1787853300": [1, 1], "1787853600": [1, 1], "1787853900": [1, 1], "1787854200": [1, 1], "1787854500": [1, 1], "1787854800": [1, 1], "1787855100": [1, 1], "1787855400": [1, 1], "1787855700": [1, 1], "1787856000": [1, 1], "1787856300": [1, 1], "1787856600": [1, 1], "1787856900": [1, 1], "1787857200": [1, 1], "1787857500": [1, 1], "1787857800": [1, 1], "1787858100": [1, 1], "1787858400": [1, 1], "1787858700": [1, 1], "1787859000": [1, 1], "1787859300": [1, 1], "1787859600": [1, 1], "1787859900": [1, 1], "1787860200": [1, 1], "1787860500": [1, 1], "1787860800": [1, 1], "1787861100": [1, 1], "1787861400": [1, 1], "1787861700": [1, 1], "1787862000": [1, 1], "1787862300": [1, 1], "1787862600": [1, 1], "1787862900": [1, 1], "1787863200": [1, 1], "1787863500": [1, 1], "1787863800": [1, 1], "1787864100": [1, 1], "1787864400": [1, 1], "1787864700": [1, 1], "1787865000": [1, 1], "1787865300": [1, 1], "1787865600": [1, 1], "1787865900": [1, 1], "1787866200": [1, 1], "1787866500": [1, 1], "1787866800": [1, 1], "1787867100": [1, 1], "1787867400": [1, 1], "1787867700": [1, 1], "1787868000": [1, 1], "1787868300": [1, 1], "1787868600": [1, 1], "1787868900": [1, 1], "1787869200": [1, 1], "1787869500": [1, 1], "1787869800": [1, 1], "1787870100": [1, 1], "1787870400": [1, 1], "1787870700": [1, 1], "1787871000": [1, 1], "1787871300": [1, 1], "1787871600": [1, 1], "1787871900": [1, 1], "1787872200": [1, 1], "1787872500": [1, 1], "1787872800": [1, 1], "1787873100": [1, 1], "1787873400": [1, 1], "1787873700": [1, 1], "1787874000": [1, 1], "1787874300": [1, 1], "1787874600": [1, 1], "1787874900": [1, 1], "1787875200": [1, 1], "1787875800": [1, 1], "1787876400": [1, 1], "1787876700": [1, 1], "1787877900": [3, 3], "1787878200": [1, 1], "1787878800": [1, 1]}};
-        const BARS_COUNT = 60;
-        let currentTf = '90j';
+    <div class="header">
+        <h1 id="page-title">Statut des Services</h1>
+        <p id="last-check-line"><span id="last-check-label">Dernière vérification :</span>
+            <span id="last-check-time">--</span><span class="stale-tag" id="stale-tag"></span></p>
+    </div>
 
-        function formatDuration(diff) {
-            if (diff <= 0) return "0s";
-            const days = Math.floor(diff / 86400);
-            const hours = Math.floor((diff % 86400) / 3600);
-            const mins = Math.floor((diff % 3600) / 60);
-            const secs = Math.floor(diff % 60);
-            
-            let res = "";
-            if (days > 0) res += days + "j ";
-            if (hours > 0 || days > 0) res += hours + "h ";
-            if (mins > 0 || hours > 0 || days > 0) res += mins + "m ";
-            if (secs > 0 || res === "") res += secs + "s";
-            return res.trim();
+    <div class="record-card">
+        <span class="record-icon">🏆</span>
+        <div class="record-content" id="record-content">--</div>
+    </div>
+
+    <div class="global-banner" id="global-banner">--</div>
+
+    <div class="controls">
+        <span class="controls-label" id="history-label">Historique</span>
+        <div class="segmented" id="tf-selector"></div>
+    </div>
+
+    <div id="services-list"></div>
+    <div class="footer" id="footer">--</div>
+</div>
+<div id="tooltip"></div>
+
+<noscript>
+    <p style="text-align:center;color:#8b949e">
+        Cette page nécessite JavaScript. / This page requires JavaScript.
+    </p>
+</noscript>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ i18n */
+
+const I18N = {
+    fr: {
+        locale: "fr-FR",
+        title: "Statut des Services",
+        docTitle: "Statut des Services — Keeklah",
+        lastCheck: "Dernière vérification :",
+        stale: "obsolète",
+        loading: "Chargement...",
+        offlineData: "Données indisponibles",
+        history: "Historique",
+        bannerUp: "Tous les systèmes sont opérationnels",
+        bannerDown: "Perturbation sur un ou plusieurs services",
+        bannerUnknown: "Chargement de l'état des services...",
+        online: "En ligne",
+        offline: "Inaccessible",
+        upSince: "En ligne depuis :",
+        downSince: "Hors ligne depuis :",
+        downtime: "Downtime :",
+        now: "Maintenant",
+        noData: "Aucune donnée",
+        uptime: "d'uptime",
+        recordInit: "Initialisation...",
+        recordWinner: "Gagnant :",
+        recordUpFor: "up pendant",
+        recordFrom: "du",
+        recordToOpen: "à",
+        recordToClosed: "au",
+        recordNow: "maintenant",
+        at: " à ",
+        footer: "Monitoring autonome par Raspberry Pi 1 B+",
+        tf: { "5h": "5h", "1d": "1j", "7d": "7j", "30d": "30j", "90d": "90j", "all": "Tout" },
+        units: { d: "j", h: "h", m: "m", s: "s" }
+    },
+    en: {
+        locale: "en-GB",
+        title: "Service Status",
+        docTitle: "Service Status — Keeklah",
+        lastCheck: "Last check:",
+        stale: "stale",
+        loading: "Loading...",
+        offlineData: "Data unavailable",
+        history: "History",
+        bannerUp: "All systems operational",
+        bannerDown: "Disruption on one or more services",
+        bannerUnknown: "Loading service status...",
+        online: "Online",
+        offline: "Unreachable",
+        upSince: "Online for:",
+        downSince: "Offline for:",
+        downtime: "Downtime:",
+        now: "Now",
+        noData: "No data",
+        uptime: "uptime",
+        recordInit: "Initializing...",
+        recordWinner: "Record holder:",
+        recordUpFor: "up for",
+        recordFrom: "from",
+        recordToOpen: "to",
+        recordToClosed: "to",
+        recordNow: "now",
+        at: " at ",
+        footer: "Self-hosted monitoring on a Raspberry Pi 1 B+",
+        tf: { "5h": "5h", "1d": "1d", "7d": "7d", "30d": "30d", "90d": "90d", "all": "All" },
+        units: { d: "d", h: "h", m: "m", s: "s" }
+    }
+};
+
+const TF_ORDER = ["5h", "1d", "7d", "30d", "90d", "all"];
+const TF_SECONDS = { "5h": 5 * 3600, "1d": 86400, "7d": 7 * 86400, "30d": 30 * 86400, "90d": 90 * 86400 };
+const BARS = 60;
+const POLL_MS = 60000;
+
+/* ---------------------------------------------------------------- state */
+
+let LANG = "fr";
+let TF = "90d";
+let DATA = null;
+let skew = 0;              // serverNow - clientNow, en secondes
+let lastFetchOk = true;
+let pollTimer = null;
+const cards = new Map();   // serviceId -> refs DOM
+
+function store(key, val) {
+    try { localStorage.setItem(key, val); } catch (e) { /* navigation privée */ }
+}
+function restore(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+
+function t() { return I18N[LANG]; }
+function serverNow() { return Math.floor(Date.now() / 1000) + skew; }
+
+/* ------------------------------------------------- formateurs Intl mis en cache */
+
+const fmtCache = new Map();
+const FMT_OPTS = {
+    time:     { hour: "2-digit", minute: "2-digit" },
+    dayMonth: { day: "numeric", month: "short" },
+    fullDate: { day: "2-digit", month: "2-digit", year: "numeric" },
+    seconds:  { hour: "2-digit", minute: "2-digit", second: "2-digit" }
+};
+function fmt(kind) {
+    const key = LANG + ":" + kind;
+    let f = fmtCache.get(key);
+    if (!f) {
+        f = new Intl.DateTimeFormat(t().locale, FMT_OPTS[kind]);
+        fmtCache.set(key, f);
+    }
+    return f;
+}
+
+function formatDuration(diff) {
+    const u = t().units;
+    if (diff <= 0) return "0" + u.s;
+    diff = Math.floor(diff);
+    const days = Math.floor(diff / 86400);
+    const hours = Math.floor((diff % 86400) / 3600);
+    const mins = Math.floor((diff % 3600) / 60);
+    const secs = diff % 60;
+    let res = "";
+    if (days > 0) res += days + u.d + " ";
+    if (hours > 0 || days > 0) res += hours + u.h + " ";
+    if (mins > 0 || hours > 0 || days > 0) res += mins + u.m + " ";
+    if (secs > 0 || res === "") res += secs + u.s;
+    return res.trim();
+}
+
+function formatDateTime(ts) {
+    const d = new Date(ts * 1000);
+    return fmt("fullDate").format(d) + t().at + fmt("time").format(d);
+}
+
+function formatTick(ts, totalSecs) {
+    const d = new Date(ts * 1000);
+    if (totalSecs <= 86400) return fmt("time").format(d);
+    if (totalSecs <= 7 * 86400) return fmt("dayMonth").format(d) + " " + fmt("time").format(d);
+    return fmt("dayMonth").format(d);
+}
+
+/* --------------------------------------------------------------- toolbars */
+
+const tooltipEl = document.getElementById("tooltip");
+
+function buildSegmented(el, items, isActive, onPick) {
+    el.textContent = "";
+    for (const it of items) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = it.label;
+        b.setAttribute("aria-pressed", isActive(it.key) ? "true" : "false");
+        b.addEventListener("click", () => onPick(it.key));
+        el.appendChild(b);
+    }
+}
+
+function renderToolbars() {
+    buildSegmented(
+        document.getElementById("lang-selector"),
+        [{ key: "fr", label: "FR" }, { key: "en", label: "EN" }],
+        k => k === LANG,
+        setLang
+    );
+    buildSegmented(
+        document.getElementById("tf-selector"),
+        TF_ORDER.map(k => ({ key: k, label: t().tf[k] })),
+        k => k === TF,
+        setTimeframe
+    );
+}
+
+function setLang(lang) {
+    if (!I18N[lang] || lang === LANG) return;
+    LANG = lang;
+    store("sp.lang", lang);
+    document.documentElement.lang = lang;
+    renderAll();
+}
+
+function setTimeframe(tf) {
+    if (tf === TF) return;
+    TF = tf;
+    store("sp.tf", tf);
+    renderToolbars();
+    renderHistory();
+}
+
+/* ------------------------------------------------------------ récupération */
+
+async function poll() {
+    try {
+        const res = await fetch("data.json", { cache: "no-cache" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const json = await res.json();
+        DATA = json;
+        skew = (json.t || 0) - Math.floor(Date.now() / 1000);
+        lastFetchOk = true;
+    } catch (e) {
+        lastFetchOk = false;   // on garde les dernières données connues
+    }
+    renderAll();
+}
+
+function schedulePoll() {
+    clearTimeout(pollTimer);
+    if (document.hidden) return;          // pas de polling dans un onglet en arrière-plan
+    pollTimer = setTimeout(async () => {
+        await poll();
+        schedulePoll();
+    }, POLL_MS);
+}
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { clearTimeout(pollTimer); return; }
+    const age = DATA ? serverNow() - DATA.t : Infinity;
+    if (age > POLL_MS / 1000) poll();     // rafraîchissement immédiat au retour
+    schedulePoll();
+});
+
+/* ------------------------------------------------------- choix de la série */
+
+/* Choisit la résolution à afficher. La couverture prime sur la finesse : une
+   série dont la rétention s'arrête au milieu de la période laisserait un trou,
+   alors qu'un pas plus fin que la barre coûte juste quelques additions. */
+function pickSeries(hist, totalSecs, barSecs) {
+    if (!hist || !hist.length) return null;
+    const covering = hist.filter(s => s.keep >= totalSecs);
+    const pool = covering.length ? covering : [hist.reduce((a, b) => (b.keep > a.keep ? b : a))];
+
+    let best = null;
+    for (const s of pool) {
+        if (s.step <= barSecs && (!best || s.step > best.step)) best = s;
+    }
+    // Aucun pas ne tient dans une barre : on prend le plus fin, quitte à sommer plus.
+    return best || pool.reduce((a, b) => (b.step < a.step ? b : a));
+}
+
+function timeframeSeconds(oldestTs) {
+    if (TF !== "all") return TF_SECONDS[TF];
+    const now = serverNow();
+    return Math.max(now - (oldestTs || now - 5 * 3600), 5 * 3600);
+}
+
+/* -------------------------------------------------------- création des cartes */
+
+function ensureCards(services) {
+    const list = document.getElementById("services-list");
+    const ids = services.map(s => s.id).join(" ");
+    if (list.dataset.ids === ids) return;   // structure inchangée, on garde le DOM
+
+    list.textContent = "";
+    cards.clear();
+
+    for (const s of services) {
+        const card = document.createElement("div");
+        card.className = "service-card";
+
+        const header = document.createElement("div");
+        header.className = "service-header";
+
+        const title = document.createElement(s.url ? "a" : "div");
+        title.className = "service-title";
+        if (s.url) {
+            title.href = s.url;
+            title.target = "_blank";
+            title.rel = "noopener noreferrer";
+        }
+        if (s.icon) {
+            const img = document.createElement("img");
+            img.className = "service-icon";
+            img.src = s.icon;
+            img.alt = "";
+            img.loading = "lazy";
+            img.addEventListener("error", () => { img.style.display = "none"; });
+            title.appendChild(img);
+        }
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = s.name + (s.url ? " ↗" : "");
+        title.appendChild(nameSpan);
+        header.appendChild(title);
+
+        const meta = document.createElement("div");
+        meta.className = "service-meta";
+
+        const stats = document.createElement("div");
+        stats.className = "stats-summary";
+        const pctEl = document.createElement("span");
+        pctEl.className = "uptime-pct";
+        const dtEl = document.createElement("div");
+        dtEl.className = "downtime-tag";
+        stats.append(pctEl, dtEl);
+
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        meta.append(stats, badge);
+        header.appendChild(meta);
+
+        const timer = document.createElement("div");
+        timer.className = "timer-info";
+        const timerLabel = document.createElement("span");
+        const timerValue = document.createElement("strong");
+        timer.append(timerLabel, document.createTextNode(" "), timerValue);
+
+        const barsEl = document.createElement("div");
+        barsEl.className = "history-bars";
+        const barEls = [];
+        for (let i = 0; i < BARS; i++) {
+            const b = document.createElement("div");
+            b.className = "bar nodata";
+            barsEl.appendChild(b);
+            barEls.push(b);
         }
 
-        function getTimeframeSeconds(tf, firstTs) {
-            const now = Math.floor(Date.now() / 1000);
-            switch(tf) {
-                case '5h': return 5 * 3600;
-                case '1j': return 24 * 3600;
-                case '7j': return 7 * 86400;
-                case '30j': return 30 * 86400;
-                case '90j': return 90 * 86400;
-                case 'tout': 
-                    const diff = now - (firstTs || (now - 5 * 3600));
-                    return Math.max(diff, 5 * 3600);
-                default: return 90 * 86400;
+        const ticksEl = document.createElement("div");
+        ticksEl.className = "history-ticks";
+        const tickEls = [];
+        for (let i = 0; i < 5; i++) {
+            const sp = document.createElement("span");
+            ticksEl.appendChild(sp);
+            tickEls.push(sp);
+        }
+
+        card.append(header, timer, barsEl, ticksEl);
+        list.appendChild(card);
+
+        cards.set(s.id, { pctEl, dtEl, badge, timerLabel, timerValue, barEls, tickEls });
+    }
+    list.dataset.ids = ids;
+}
+
+/* ------------------------------------------------------------------ rendu */
+
+function renderStatic() {
+    const L = t();
+    document.title = L.docTitle;
+    document.documentElement.lang = LANG;
+    document.getElementById("page-title").textContent = L.title;
+    document.getElementById("last-check-label").textContent = L.lastCheck;
+    document.getElementById("history-label").textContent = L.history;
+    document.getElementById("stale-tag").textContent = L.stale;
+    document.getElementById("footer").textContent = L.footer;
+}
+
+function renderHeader() {
+    const L = t();
+    const el = document.getElementById("last-check-time");
+    const line = document.getElementById("last-check-line");
+
+    if (!DATA) {
+        el.textContent = lastFetchOk ? L.loading : L.offlineData;
+        line.classList.remove("stale");
+        return;
+    }
+    const d = new Date(DATA.t * 1000);
+    el.textContent = fmt("fullDate").format(d) + L.at + fmt("seconds").format(d);
+
+    const maxAge = Math.max(3 * (DATA.interval || 300), 900);
+    line.classList.toggle("stale", (serverNow() - DATA.t) > maxAge || !lastFetchOk);
+}
+
+function renderBanner() {
+    const el = document.getElementById("global-banner");
+    const L = t();
+    if (!DATA || !DATA.services || !DATA.services.length) {
+        el.className = "global-banner";
+        el.textContent = L.bannerUnknown;
+        return;
+    }
+    const allUp = DATA.services.every(s => s.status === "UP");
+    el.className = "global-banner " + (allUp ? "up" : "down");
+    el.textContent = allUp ? L.bannerUp : L.bannerDown;
+}
+
+function renderRecord() {
+    const L = t();
+    const el = document.getElementById("record-content");
+    el.textContent = "";
+    const rec = DATA && DATA.record;
+
+    const winner = document.createElement("strong");
+    el.append(document.createTextNode(L.recordWinner + " "), winner);
+
+    if (!rec || !rec.name || !rec.start) {
+        winner.textContent = L.recordInit;
+        el.append(document.createTextNode("."));
+        return;
+    }
+    winner.textContent = rec.name;
+
+    const dur = document.createElement("strong");
+    dur.id = "record-timer";
+    dur.dataset.start = rec.start;
+    dur.dataset.end = rec.end || "";
+
+    el.append(document.createTextNode(", " + L.recordUpFor + " "), dur);
+    el.append(document.createTextNode(", " + L.recordFrom + " " + formatDateTime(rec.start) + " "));
+    el.append(document.createTextNode(
+        rec.end ? L.recordToClosed + " " + formatDateTime(rec.end) + "."
+                : L.recordToOpen + " " + L.recordNow + "."
+    ));
+}
+
+function renderHistory() {
+    if (!DATA || !DATA.services) return;
+    const L = t();
+    const now = serverNow();
+    // Chaque check couvre un intervalle de sonde : compter les échecs est exact,
+    // alors que pondérer par le pas de la série gonfle les créneaux incomplets.
+    const interval = DATA.interval || 300;
+
+    for (const s of DATA.services) {
+        const c = cards.get(s.id);
+        if (!c) continue;
+
+        const hist = (DATA.history && DATA.history[s.id]) || [];
+        let oldest = null;
+        for (const ser of hist) {
+            if (ser.points.length && (oldest === null || ser.points[0][0] < oldest)) oldest = ser.points[0][0];
+        }
+
+        const totalSecs = timeframeSeconds(oldest);
+        const barSecs = totalSecs / BARS;
+        const startSecs = now - totalSecs;
+
+        const series = pickSeries(hist, totalSecs, barSecs);
+        const pts = series ? series.points : [];
+
+        // Balayage linéaire unique : points et barres sont triés dans le même ordre.
+        // Fenêtre stricte : un point n'entre que si son créneau démarre dedans,
+        // pour que le pourcentage affiché corresponde exactement à la période.
+        let p = 0;
+        while (p < pts.length && pts[p][0] < startSecs) p++;
+
+        let sumUp = 0, sumTot = 0, downSecs = 0;
+
+        for (let i = 0; i < BARS; i++) {
+            const bStart = startSecs + i * barSecs;
+            const bEnd = bStart + barSecs;
+            let bUp = 0, bTot = 0;
+
+            while (p < pts.length && pts[p][0] < bEnd) {
+                const pt = pts[p];
+                bUp += pt[1];
+                bTot += pt[2];
+                downSecs += (pt[2] - pt[1]) * interval;
+                p++;
             }
-        }
 
-        function formatTick(ts, totalSecs) {
-            const d = new Date(ts * 1000);
-            if (totalSecs <= 86400) {
-                return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-            } else if (totalSecs <= 7 * 86400) {
-                return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + " " + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            sumUp += bUp;
+            sumTot += bTot;
+
+            const bar = c.barEls[i];
+            const dStart = new Date(bStart * 1000);
+            const timeStr = totalSecs <= 86400
+                ? fmt("time").format(dStart) + " - " + fmt("time").format(new Date(bEnd * 1000))
+                : fmt("dayMonth").format(dStart) + " " + fmt("time").format(dStart);
+
+            let cls, tip;
+            if (bTot === 0) {
+                cls = "bar nodata";
+                tip = timeStr + "\n" + L.noData;
             } else {
-                return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+                const pct = Math.round((bUp / bTot) * 100);
+                cls = bUp === 0 ? "bar down" : (bUp < bTot ? "bar partial" : "bar");
+                tip = timeStr + "\n" + pct + "% " + L.uptime + " (" + bUp + "/" + bTot + ")";
             }
+            if (bar.className !== cls) bar.className = cls;
+            bar.dataset.tip = tip;
         }
 
-        function formatFrenchDateTime(ts) {
-            const d = new Date(ts * 1000);
-            const dateStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-            return dateStr + ' à ' + timeStr;
+        const ratios = [0, 0.25, 0.5, 0.75, 1];
+        for (let i = 0; i < 5; i++) {
+            c.tickEls[i].textContent = i === 4 ? L.now : formatTick(startSecs + totalSecs * ratios[i], totalSecs);
         }
 
-        function setTimeframe(tf) {
-            currentTf = tf;
-            document.querySelectorAll('.tf-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.innerText.toLowerCase() === tf.toLowerCase());
-            });
-            renderHistory();
+        c.pctEl.textContent = (sumTot > 0 ? ((sumUp / sumTot) * 100).toFixed(1) : "100.0") + "%";
+        c.dtEl.textContent = L.downtime + " " + formatDuration(downSecs);
+        c.dtEl.classList.toggle("on", downSecs >= 1);
+    }
+}
+
+function renderServices() {
+    if (!DATA || !DATA.services) return;
+    const L = t();
+    ensureCards(DATA.services);
+
+    for (const s of DATA.services) {
+        const c = cards.get(s.id);
+        if (!c) continue;
+        const up = s.status === "UP";
+        c.badge.className = "badge " + (up ? "up" : "down");
+        c.badge.textContent = up ? L.online : L.offline;
+        c.timerLabel.textContent = up ? L.upSince : L.downSince;
+        c.timerValue.dataset.since = s.since || 0;
+    }
+}
+
+function renderAll() {
+    renderStatic();
+    renderToolbars();
+    renderHeader();
+    renderBanner();
+    renderRecord();
+    renderServices();
+    renderHistory();
+    updateTimers();
+}
+
+/* --------------------------------------------------------------- minuteries */
+
+function updateTimers() {
+    const now = serverNow();
+    document.querySelectorAll("[data-since]").forEach(el => {
+        const since = parseInt(el.dataset.since, 10);
+        if (since > 0) el.textContent = formatDuration(now - since);
+    });
+    const rec = document.getElementById("record-timer");
+    if (rec) {
+        const start = parseInt(rec.dataset.start, 10);
+        if (start > 0) {
+            const end = parseInt(rec.dataset.end, 10) || now;
+            rec.textContent = formatDuration(end - start);
         }
+    }
+}
 
-        function renderHistory() {
-            const now = Math.floor(Date.now() / 1000);
-            
-            document.querySelectorAll('.service-card').forEach(card => {
-                const sid = card.getAttribute('data-service-id');
-                const container = document.getElementById('bars-' + sid);
-                const ticksContainer = document.getElementById('ticks-' + sid);
-                const statsContainer = document.getElementById('stats-' + sid);
-                
-                container.innerHTML = '';
-                ticksContainer.innerHTML = '';
+/* ----------------------------------------------------------------- tooltip */
 
-                const sHistory = rawHistory[sid] || {};
-                const tsKeys = Object.keys(sHistory).map(Number).sort((a, b) => a - b);
-                const firstTs = tsKeys.length > 0 ? tsKeys[0] : (now - 18000);
+const listEl = document.getElementById("services-list");
 
-                const totalSecs = getTimeframeSeconds(currentTf, firstTs);
-                const barSecs = totalSecs / BARS_COUNT;
-                const startSecs = now - totalSecs;
+listEl.addEventListener("pointerover", e => {
+    const bar = e.target.closest(".bar");
+    if (!bar) return;
+    tooltipEl.textContent = bar.dataset.tip || "";
+    tooltipEl.classList.add("on");
+    const r = bar.getBoundingClientRect();
+    const tr = tooltipEl.getBoundingClientRect();
+    let left = r.left + r.width / 2 - tr.width / 2;
+    left = Math.max(4, Math.min(left, window.innerWidth - tr.width - 4));
+    let top = r.top - tr.height - 8;
+    if (top < 4) top = r.bottom + 8;
+    tooltipEl.style.transform = "translate(" + Math.round(left) + "px," + Math.round(top) + "px)";
+});
 
-                let totalUpAll = 0;
-                let totalChecksAll = 0;
-                let totalDowntimeSecs = 0;
+listEl.addEventListener("pointerout", e => {
+    if (e.target.closest(".bar")) tooltipEl.classList.remove("on");
+});
 
-                for (let i = 0; i < BARS_COUNT; i++) {
-                    const bStart = startSecs + (i * barSecs);
-                    const bEnd = bStart + barSecs;
+/* -------------------------------------------------------------- démarrage */
 
-                    let bUp = 0;
-                    let bTotal = 0;
+(function init() {
+    const savedLang = restore("sp.lang");
+    if (savedLang && I18N[savedLang]) LANG = savedLang;
+    else if ((navigator.language || "fr").toLowerCase().startsWith("en")) LANG = "en";
 
-                    for (const ts of tsKeys) {
-                        const inRange = (i === BARS_COUNT - 1) ? (ts >= bStart && ts <= bEnd + 2) : (ts >= bStart && ts < bEnd);
-                        if (inRange) {
-                            const slot = sHistory[ts];
-                            bUp += slot[0];
-                            bTotal += slot[1];
-                        }
-                    }
+    const savedTf = restore("sp.tf");
+    if (savedTf && TF_ORDER.indexOf(savedTf) !== -1) TF = savedTf;
 
-                    totalUpAll += bUp;
-                    totalChecksAll += bTotal;
-
-                    const bar = document.createElement('div');
-                    bar.className = 'bar';
-
-                    const dStart = new Date(bStart * 1000);
-                    const dEnd = new Date(bEnd * 1000);
-                    let timeStr = "";
-                    if (totalSecs <= 86400) {
-                        timeStr = dStart.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'}) + " à " + dEnd.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
-                    } else {
-                        timeStr = dStart.toLocaleDateString('fr-FR', {day:'numeric', month:'short'}) + " " + dStart.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
-                    }
-
-                    if (bTotal === 0) {
-                        bar.classList.add('nodata');
-                        bar.innerHTML = `<div class="tooltip">${timeStr}<br>Aucune donnée</div>`;
-                    } else {
-                        const pct = (bUp / bTotal) * 100;
-                        const pctRound = Math.round(pct);
-                        const downRatio = (bTotal - bUp) / bTotal;
-                        totalDowntimeSecs += downRatio * barSecs;
-
-                        if (bUp === 0) {
-                            bar.classList.add('down');
-                        } else if (bUp < bTotal) {
-                            bar.classList.add('partial');
-                        }
-
-                        bar.innerHTML = `<div class="tooltip">${timeStr}<br><strong>${pctRound}% d'uptime</strong> (${bUp}/${bTotal})</div>`;
-                    }
-                    container.appendChild(bar);
-                }
-
-                // Génération des 5 repères temporels
-                const tickRatios = [0, 0.25, 0.50, 0.75, 1.0];
-                tickRatios.forEach(r => {
-                    const span = document.createElement('span');
-                    if (r === 1.0) {
-                        span.innerText = "Maintenant";
-                    } else {
-                        const tickTs = startSecs + (totalSecs * r);
-                        span.innerText = formatTick(tickTs, totalSecs);
-                    }
-                    ticksContainer.appendChild(span);
-                });
-
-                const globalPct = totalChecksAll > 0 ? ((totalUpAll / totalChecksAll) * 100).toFixed(1) : "100.0";
-                const dtFormatted = formatDuration(totalDowntimeSecs);
-                
-                statsContainer.innerHTML = `
-                    <span class="uptime-pct">${globalPct}%</span>
-                    <div class="downtime-tag">Downtime : ${dtFormatted}</div>
-                `;
-            });
-        }
-
-        function initLocalDates() {
-            const lcEl = document.getElementById('last-check-time');
-            if (lcEl) {
-                const ts = parseInt(lcEl.getAttribute('data-ts'));
-                if (ts) {
-                    const d = new Date(ts * 1000);
-                    lcEl.innerText = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                }
-            }
-
-            const startEl = document.getElementById('rec-start');
-            if (startEl) {
-                const ts = parseInt(startEl.getAttribute('data-ts'));
-                if (ts > 0) {
-                    startEl.innerText = formatFrenchDateTime(ts);
-                }
-            }
-
-            const endEl = document.getElementById('rec-end');
-            const prepEl = document.getElementById('rec-prep');
-            if (endEl) {
-                const ts = parseInt(endEl.getAttribute('data-ts'));
-                if (ts > 0) {
-                    endEl.innerText = formatFrenchDateTime(ts);
-                    if (prepEl) prepEl.innerText = "au";
-                } else {
-                    endEl.innerText = "maintenant";
-                    if (prepEl) prepEl.innerText = "à";
-                }
-            }
-        }
-
-        function updateTimers() {
-            const now = Math.floor(Date.now() / 1000);
-            
-            document.querySelectorAll('[data-since]').forEach(el => {
-                const since = parseInt(el.getAttribute('data-since'));
-                if (!isNaN(since) && since > 0) {
-                    const diff = Math.max(0, now - since);
-                    el.innerText = formatDuration(diff);
-                }
-            });
-
-            const recEl = document.getElementById('record-timer');
-            if (recEl) {
-                const start = parseInt(recEl.getAttribute('data-start'));
-                const endAttr = recEl.getAttribute('data-end');
-                if (!isNaN(start) && start > 0) {
-                    const end = (endAttr && parseInt(endAttr) > 0) ? parseInt(endAttr) : now;
-                    const diff = Math.max(0, end - start);
-                    recEl.innerText = formatDuration(diff);
-                }
-            }
-        }
-
-        initLocalDates();
-        setInterval(updateTimers, 1000);
-        updateTimers();
-        renderHistory();
-    </script>
+    renderStatic();
+    renderToolbars();
+    setInterval(updateTimers, 1000);
+    poll().then(schedulePoll);
+})();
+</script>
 </body>
 </html>
