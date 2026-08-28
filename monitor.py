@@ -303,6 +303,42 @@ def has_staged_changes():
     return git("diff", "--cached", "--quiet", check=False).returncode != 0
 
 
+def realign_on_remote(message):
+    """Rejeu de la publication à partir du dépôt distant.
+
+    Le Pi n'est propriétaire que de data.json ; le code vient toujours du dépôt.
+    On repart donc de la tête distante et on repose la donnée par-dessus :
+    impossible de conflitter, impossible d'annuler un changement de code poussé
+    ailleurs, et le Pi ne peut pas rester coincé en échec de push.
+
+    Aucune analyse d'historique ici : après une amende, l'ancêtre commun peut
+    avoir disparu et toute comparaison échouerait. On étiquette simplement le
+    HEAD local avant de le défaire s'il portait quelque chose d'inédit, de
+    sorte que rien ne soit jamais perdu sans trace.
+    """
+    git("fetch", "origin", "main")
+
+    already_pushed = git("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD",
+                         check=False).returncode == 0
+    if not already_pushed:
+        tag = "avant-realignement-%d" % int(time.time())
+        git("tag", "-f", tag, "HEAD", check=False)
+        print("HEAD local conservé sous l'étiquette %s." % tag)
+
+    with open(DATA_FILE, "rb") as f:
+        payload = f.read()
+    git("reset", "--hard", "FETCH_HEAD")
+    with open(DATA_FILE, "wb") as f:
+        f.write(payload)
+
+    git("add", "-A")
+    if has_staged_changes():
+        git("commit", "-m", message)
+    git("push", "origin", "main")
+    print("Réaligné sur le dépôt distant, données republiées.")
+    return True
+
+
 def publish(message, amend):
     git("add", "-A")
     if not has_staged_changes() and not amend:
@@ -313,19 +349,28 @@ def publish(message, amend):
         commit_args.append("--amend")
     git(*commit_args)
 
+    push_args = ["push", "origin", "main"]
     if amend:
-        pushed = git("push", "--force-with-lease", "origin", "main", check=False)
-        if pushed.returncode == 0:
-            return True
-        # Quelqu'un a poussé ailleurs : on se réaligne et on repart sur un
-        # commit normal plutôt que d'écraser son travail.
-        print("force-with-lease refusé, rebase sur origin/main.")
-        git("pull", "--rebase", "--autostash", "origin", "main", check=False)
-        git("push", "origin", "main")
+        push_args.insert(1, "--force-with-lease")
+
+    if git(*push_args, check=False).returncode == 0:
         return True
 
-    git("push", "origin", "main")
-    return True
+    # Push rejeté : le dépôt a bougé ailleurs. Vaut pour l'amende comme pour le
+    # commit normal, qui sinon échouait à chaque passage sans jamais se rattraper.
+    print("Push rejeté, tentative de réalignement.")
+    return realign_on_remote(message)
+
+
+def compact_repo():
+    """Une amende par publication laisse l'ancien commit dans le reflog, donc
+    joignable, donc jamais élagué par gc : environ 3,5 Mo par jour sur la carte
+    SD. On purge à chaque nouveau commit quotidien."""
+    try:
+        git("reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
+        git("gc", "--prune=now", "--quiet", timeout=600)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        print("Compactage du dépôt ignoré : %s" % e)
 
 
 # -------------------------------------------------------------------- main
@@ -429,6 +474,8 @@ def main():
             published = publish(message, amend)
             if published:
                 print("[%d] publié : %s%s" % (now_ts, message, " (amend)" if amend else ""))
+                if not amend:
+                    compact_repo()
         except subprocess.TimeoutExpired:
             print("[%d] Git : délai dépassé." % now_ts)
         except subprocess.CalledProcessError as e:

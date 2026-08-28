@@ -99,8 +99,18 @@ Changer un `id` réinitialise l'historique du service concerné.
 - Sinon → le commit automatique précédent est **amendé** puis repoussé avec
   `--force-with-lease`, ce qui garde le dépôt à taille constante malgré 288
   exécutions par jour. Un vrai commit est ouvert au moins une fois par jour.
-- Si quelqu'un a poussé entre-temps, le `--force-with-lease` échoue, le script
-  rebase et repart sur un commit normal : aucun travail distant n'est écrasé.
+- Si quelqu'un a poussé entre-temps, le push est rejeté et le script se
+  réaligne : il repart de la tête distante et repose `data.json` par-dessus.
+  Le Pi n'est propriétaire que des données, jamais du code — un changement de
+  code poussé depuis un poste est donc intégré, pas écrasé. Si le HEAD local
+  portait quelque chose d'inédit, il est étiqueté `avant-realignement-<ts>`
+  avant d'être défait, pour rester récupérable.
+- Une amende laisse l'ancien commit dans le reflog, donc joignable, donc jamais
+  élagué par `gc` : environ 3,5 Mo par jour de carte SD. Le dépôt local est
+  compacté à chaque commit non amendé, donc au moins une fois par jour.
+
+Le Pi n'est pas un poste de travail : n'y modifiez pas le code. Pour le mettre
+à jour, `git fetch origin && git reset --hard origin/main`.
 
 Pour désactiver ce comportement et garder un commit par exécution, mettre
 `SQUASH_AUTO_COMMITS = False` dans `monitor.py`.
