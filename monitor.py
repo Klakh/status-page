@@ -5,19 +5,40 @@ import time
 import os
 import subprocess
 
-# --- CONFIGURATION DES SERVICES ---
-SERVICES = [
-    {
-        "id": "ktv",
-        "name": "K.tv",
-        "url": "https://example.com",
-        "icon": "https://example.com/img/icons/ktv.webp"
-    },
-]
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+CONFIG_EXAMPLE_FILE = os.path.join(BASE_DIR, "config.json.example")
 STATE_FILE = os.path.join(BASE_DIR, "state.json")
 OUTPUT_HTML = os.path.join(BASE_DIR, "index.html")
+
+EXAMPLE_CONFIG = [
+    {
+        "id": "service-example",
+        "name": "Mon Service",
+        "check_url": "http://127.0.0.1:8080/health",
+        "public_url": "https://example.com",
+        "icon": "https://example.com/icon.png"
+    }
+]
+
+def load_config():
+    # Générer un fichier exemple si non présent pour servir de documentation dans Git
+    if not os.path.exists(CONFIG_EXAMPLE_FILE):
+        try:
+            with open(CONFIG_EXAMPLE_FILE, "w", encoding="utf-8") as f:
+                json.dump(EXAMPLE_CONFIG, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Impossible de créer config.json.example : {e}")
+
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Erreur lors de la lecture de config.json: {e}")
+    
+    print("AVERTISSEMENT : config.json non trouvé. Utilisation de la configuration par défaut.")
+    return EXAMPLE_CONFIG
 
 def check_service(url, timeout=5):
     try:
@@ -30,15 +51,15 @@ def check_service(url, timeout=5):
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
-            with open(STATE_FILE, "r") as f:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
     return {}
 
 def save_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2, ensure_ascii=False)
 
 def clean_old_history(history, now_ts):
     cutoff = now_ts - (180 * 86400)
@@ -312,13 +333,18 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
         status_label = "En ligne" if s["status"] == "UP" else "Inaccessible"
         timer_prefix = "En ligne depuis :" if s["status"] == "UP" else "Hors ligne depuis :"
         
+        pub_url = s.get("public_url")
+        icon_html = f'<img src="{s["icon"]}" alt="" class="service-icon" onerror="this.style.display=\'none\'">' if s.get("icon") else ''
+        
+        if pub_url:
+            title_html = f'<a href="{pub_url}" target="_blank" class="service-title">{icon_html}<span>{s["name"]} ↗</span></a>'
+        else:
+            title_html = f'<div class="service-title">{icon_html}<span>{s["name"]}</span></div>'
+
         html += f"""
             <div class="service-card" data-service-id="{s['id']}">
                 <div class="service-header">
-                    <a href="{s['url']}" target="_blank" class="service-title">
-                        <img src="{s['icon']}" alt="" class="service-icon" onerror="this.style.display='none'">
-                        <span>{s['name']} ↗</span>
-                    </a>
+                    {title_html}
                     <div class="service-meta">
                         <div class="stats-summary" id="stats-{s['id']}">
                             <span class="uptime-pct">100%</span>
@@ -472,7 +498,6 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
                     container.appendChild(bar);
                 }}
 
-                // Génération des 5 repères temporels
                 const tickRatios = [0, 0.25, 0.50, 0.75, 1.0];
                 tickRatios.forEach(r => {{
                     const span = document.createElement('span');
@@ -562,6 +587,7 @@ def generate_html(services_data, global_status, history_data, record_data, now_t
         f.write(html)
 
 def main():
+    services_config = load_config()
     now_ts = int(time.time())
     slot_ts = (now_ts // 300) * 300
     
@@ -574,9 +600,10 @@ def main():
     all_up = True
     services_output = []
 
-    for s in SERVICES:
+    for s in services_config:
         sid = s["id"]
-        is_up = check_service(s["url"])
+        check_url = s.get("check_url") or s.get("url") or s.get("public_url")
+        is_up = check_service(check_url)
         if not is_up:
             all_up = False
             
@@ -619,7 +646,7 @@ def main():
         services_output.append({
             "id": sid,
             "name": s["name"],
-            "url": s["url"],
+            "public_url": s.get("public_url"),
             "icon": s.get("icon", ""),
             "status": status_str,
             "last_change": last_change
@@ -627,7 +654,7 @@ def main():
 
     best_dur = record.get("duration", 0)
     
-    for s in SERVICES:
+    for s in services_config:
         sid = s["id"]
         if new_state[sid]["status"] == "UP":
             start_ts = new_state[sid]["last_change"]
@@ -655,7 +682,7 @@ def main():
     # Génération du HTML
     generate_html(services_output, all_up, history, record, now_ts)
 
-    # Vérification des modifications dans Git (index.html, monitor.py, state.json...)
+    # Détection des changements Git
     has_git_changes = check_git_changes()
     last_push = old_state.get("_meta", {}).get("last_push", 0)
     
