@@ -88,8 +88,13 @@ date vieille de plusieurs mois ne crée pas de créneaux de 5 min qui seraient
 ### Cron
 
 ```cron
-* * * * * /usr/bin/python3 /home/dietpi/status-page/monitor.py >> /var/log/status-page.log 2>&1
+* * * * * /usr/bin/python3 /home/dietpi/status-page/monitor.py
 ```
+
+Pas de redirection vers `/var/log` : ce répertoire appartient à root, la
+redirection échoue avant que la commande démarre, et cron n'exécute alors rien
+du tout — sans que rien n'apparaisse nulle part. Si un journal devient
+nécessaire, il sera écrit par `monitor.py` lui-même, pas par le cron.
 
 Sonder et publier sont découplés : la sonde tourne à chaque passage, mais un
 commit + push n'a lieu qu'au bout de `PUBLISH_EVERY` secondes — sauf changement
