@@ -1,4 +1,6 @@
 config.json
 state.json
 state.json.*
-status_page.log*
+__pycache__/
+*.pyc
+*.log
