@@ -85,15 +85,77 @@ def load_config():
         except OSError as e:
             print("Impossible de créer config.json.example : %s" % e)
 
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, ValueError) as e:
-            print("Erreur de lecture de config.json : %s" % e)
+    # Jamais de repli silencieux sur EXAMPLE_CONFIG : sur un clone neuf, où
+    # config.json manque par construction, cela reviendrait à sonder un service
+    # fictif et à publier ce néant par-dessus l'historique réel. Mieux vaut ne
+    # rien faire que publier faux.
+    if not os.path.exists(CONFIG_FILE):
+        raise SystemExit(
+            "config.json absent : rien n'est sondé ni publié.\n"
+            "Copier config.json.example vers config.json et le renseigner."
+        )
 
-    print("AVERTISSEMENT : config.json absent, configuration d'exemple utilisée.")
-    return EXAMPLE_CONFIG
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except (OSError, ValueError) as e:
+        raise SystemExit("config.json illisible (%s) : rien n'est publié." % e)
+
+    if not isinstance(config, list) or not config:
+        raise SystemExit("config.json ne décrit aucun service : rien n'est publié.")
+
+    missing = [i for i, s in enumerate(config) if not isinstance(s, dict) or not s.get("id")]
+    if missing:
+        raise SystemExit("config.json : entrées sans 'id' aux positions %s." % missing)
+
+    return config
+
+
+def state_from_data(data):
+    """Reconstruit l'état durable à partir de data.json.
+
+    data.json est un sur-ensemble de ce que state.json doit retenir. Si l'état
+    disparaît — carte SD, clone neuf, `git clean -x` — repartir de la dernière
+    publication vaut mieux que repartir de zéro : elle est versionnée, donc
+    récupérable même quand le disque du Pi ne l'est plus.
+    """
+    now = data.get("t", 0)
+
+    services = {}
+    for s in data.get("services", []):
+        services[s["id"]] = {
+            "name": s.get("name", s["id"]),
+            "status": s.get("status", "DOWN"),
+            "last_change": s.get("since") or now,
+            "last_check": now,
+        }
+
+    history = {}
+    for sid, series in (data.get("history") or {}).items():
+        history[sid] = {
+            str(ser["step"]): {str(p[0]): [p[1], p[2]] for p in ser.get("points", [])}
+            for ser in series
+        }
+
+    # Seules les séries terminées sont mémorisées : une série en cours est
+    # recalculée à chaque passage depuis l'état des services.
+    rec = data.get("record") or {}
+    finished = {}
+    if rec.get("name") and rec.get("start") and rec.get("end"):
+        finished = {
+            "name": rec["name"],
+            "start_ts": rec["start"],
+            "end_ts": rec["end"],
+            "duration": rec["end"] - rec["start"],
+        }
+
+    return {
+        "services": services,
+        "transitions": data.get("transitions", {}),
+        "history": history,
+        "record_finished": finished,
+        "last_publish": now,
+    }
 
 
 def load_state():
@@ -102,7 +164,21 @@ def load_state():
             with open(STATE_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (OSError, ValueError):
-            print("state.json illisible, repartons de zéro.")
+            print("state.json illisible.")
+
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            state = state_from_data(data)
+            points = sum(len(b) for h in state["history"].values() for b in h.values())
+            print("État reconstruit depuis data.json : %d service(s), %d points d'historique."
+                  % (len(state["services"]), points))
+            return state
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            print("data.json inexploitable pour la reprise : %s" % e)
+
+    print("Aucun état exploitable, démarrage à zéro.")
     return {}
 
 

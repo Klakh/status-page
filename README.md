@@ -49,6 +49,30 @@ python3 monitor.py          # premier passage
 `config.json` et `state.json` sont ignorés par Git : la configuration reste
 locale au Pi, et l'état complet n'est jamais publié.
 
+Sans `config.json`, `monitor.py` s'arrête en erreur sans rien sonder ni
+publier. C'est délibéré : sur un clone neuf, où le fichier manque par
+construction, un repli sur la configuration d'exemple reviendrait à publier un
+historique vide par-dessus le vrai.
+
+`state.json` étant ignoré, un clone neuf n'en a pas — mais `data.json`, lui,
+est versionné et contient tout ce que l'état doit retenir. `monitor.py` le
+reconstruit donc automatiquement à partir de la dernière publication.
+
+## Réparer un historique
+
+`restore_state.py` rebâtit `state.json` depuis une ou plusieurs publications
+`data.json`, et sait déclarer un service en ligne sur une période non mesurée
+pour effacer les zones grises d'une interruption connue de la sonde :
+
+```bash
+git show <commit-sain>:data.json > /tmp/bon.json
+python3 restore_state.py --data /tmp/bon.json --data data.json \
+                         --up ktv --since-epoch <timestamp>
+python3 monitor.py
+```
+
+Ajouter `--dry-run` pour vérifier avant d'écrire.
+
 ### Cron
 
 ```cron

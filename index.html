@@ -844,13 +844,16 @@ function renderHistory() {
 
         const hist = (DATA.history && DATA.history[s.id]) || [];
         const trs = (DATA.transitions && DATA.transitions[s.id]) || [];
-        let oldest = null;
-        for (const ser of hist) {
-            if (ser.points.length && (oldest === null || ser.points[0][0] < oldest)) oldest = ser.points[0][0];
+        // Début de ce qu'on sait du service. Le journal fait autorité quand il
+        // existe : les paliers grossiers sont calés sur des frontières de jour,
+        // donc leur premier créneau précède la mise en service de plusieurs
+        // heures que rien ne peut renseigner — autant d'inutile gris à gauche.
+        let oldest = trs.length ? trs[0][0] : null;
+        if (oldest === null) {
+            for (const ser of hist) {
+                if (ser.points.length && (oldest === null || ser.points[0][0] < oldest)) oldest = ser.points[0][0];
+            }
         }
-        // "Tout" doit remonter jusqu'à la première transition connue, même si
-        // aucune mesure n'existe encore aussi loin.
-        if (trs.length && (oldest === null || trs[0][0] < oldest)) oldest = trs[0][0];
 
         let layout = historyLayout(oldest);
         let series = pickSeries(hist, layout.totalSecs, layout.step);
