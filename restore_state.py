@@ -115,6 +115,8 @@ def main():
             since = args.since_epoch
         elif args.since:
             since = int(time.mktime(time.strptime(args.since, "%Y-%m-%d %H:%M")))
+            print("--since interprété en %s, fuseau de cette machine."
+                  % time.strftime("%Z", time.localtime(since)))
         else:
             ap.error("--up demande --since-epoch ou --since")
 
@@ -138,8 +140,11 @@ def main():
         state["transitions"][sid] = [[since, "UP"]]
         state["record_finished"] = {}
 
-        print("%s : en ligne depuis %s"
-              % (sid, time.strftime("%d/%m/%Y %H:%M", time.localtime(since))))
+        # Le fuseau est affiché explicitement : sur une machine en UTC, lire
+        # une heure locale sans l'étiquette invite à croire à une erreur de
+        # deux heures qui n'existe pas — ou à en commettre une vraie avec --since.
+        print("%s : en ligne depuis %s (epoch %d)"
+              % (sid, time.strftime("%d/%m/%Y %H:%M %Z", time.localtime(since)), since))
         for step, n in sorted(created.items()):
             if n:
                 print("   palier %ss : %d créneaux comblés" % (step, n))
