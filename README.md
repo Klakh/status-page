@@ -73,6 +73,18 @@ python3 monitor.py
 
 Ajouter `--dry-run` pour vérifier avant d'écrire.
 
+Deux façons de déclarer une période en ligne :
+
+- par défaut, les créneaux manquants sont comblés comme s'ils avaient été
+  relevés : le graphe est vert plein et la période compte dans l'uptime ;
+- avec `--no-backfill`, seule la date de mise en ligne est posée. Le journal
+  des transitions suffit alors à colorer la période en hachuré « présumé en
+  ligne », sans prétendre l'avoir mesurée ni la faire entrer dans l'uptime.
+
+Dans les deux cas le remplissage respecte la rétention de chaque palier : une
+date vieille de plusieurs mois ne crée pas de créneaux de 5 min qui seraient
+élagués au passage suivant.
+
 ### Cron
 
 ```cron

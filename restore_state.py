@@ -48,34 +48,31 @@ def merge_histories(sources):
 
 
 def fill_up(buckets, since, until, interval):
-    """Déclare le service en ligne sur [since, until] : crée les créneaux de
-    5 min manquants, puis recalcule les paliers supérieurs sur cette fenêtre
-    uniquement — hors fenêtre, les agrégats existants sont préservés, eux seuls
-    portent encore ce que le pas de 5 min a déjà oublié."""
-    base_step = monitor.RESOLUTIONS[0][0]
-    per_slot = max(1, base_step // interval)
-    base = buckets.setdefault(str(base_step), {})
+    """Déclare le service en ligne sur [since, until].
 
-    created = 0
-    for slot in range((since // base_step) * base_step,
-                      (until // base_step) * base_step + 1, base_step):
-        key = str(slot)
-        if key not in base:
-            base[key] = [per_slot, per_slot]
-            created += 1
-
-    for step, _ in monitor.RESOLUTIONS[1:]:
+    Chaque palier est comblé indépendamment, et seulement à l'intérieur de sa
+    propre rétention : créer des créneaux de 5 min vieux de six mois pour les
+    voir supprimés au passage suivant ne produirait qu'un fichier obèse et une
+    attente inutile. Un créneau déjà présent n'est jamais écrasé — la mesure
+    réelle prime toujours sur la déclaration.
+    """
+    created = {}
+    for step, keep in monitor.RESOLUTIONS:
         slots = buckets.setdefault(str(step), {})
-        rebuilt = {}
-        for ts_str, (up, total) in base.items():
-            ts = int(ts_str)
-            if since <= ts <= until:
-                acc = rebuilt.setdefault(str((ts // step) * step), [0, 0])
-                acc[0] += up
-                acc[1] += total
-        for key, acc in rebuilt.items():
-            slots[key] = acc
+        # Un créneau déclaré porte ce qu'une sonde y aurait relevé.
+        per_slot = max(1, step // interval)
+        window_start = max(since, until - keep)
+        if window_start > until:
+            continue
 
+        n = 0
+        for slot in range((window_start // step) * step,
+                          (until // step) * step + 1, step):
+            key = str(slot)
+            if key not in slots:
+                slots[key] = [per_slot, per_slot]
+                n += 1
+        created[step] = n
     return created
 
 
@@ -90,6 +87,10 @@ def main():
                     help="début de la période, en secondes epoch")
     ap.add_argument("--since", metavar="'AAAA-MM-JJ HH:MM'",
                     help="idem, lu dans le fuseau de la machine")
+    ap.add_argument("--no-backfill", action="store_true",
+                    help="ne pas fabriquer d'historique : dater seulement la mise "
+                         "en ligne, les périodes non mesurées seront affichées "
+                         "comme présumées plutôt que comme relevées")
     ap.add_argument("--dry-run", action="store_true",
                     help="afficher le résultat sans écrire state.json")
     args = ap.parse_args()
@@ -119,7 +120,12 @@ def main():
 
         now = int(time.time())
         interval = sources[-1].get("interval", monitor.CHECK_INTERVAL)
-        created = fill_up(state["history"].setdefault(sid, {}), since, now, interval)
+        if args.no_backfill:
+            created = {}
+            print("%s : aucun historique fabriqué, seule la date de mise en "
+                  "ligne est posée." % sid)
+        else:
+            created = fill_up(state["history"].setdefault(sid, {}), since, now, interval)
 
         state["services"][sid]["status"] = "UP"
         state["services"][sid]["last_change"] = since
@@ -128,8 +134,11 @@ def main():
         state["transitions"][sid] = [[since, "UP"]]
         state["record_finished"] = {}
 
-        print("%s : %d créneaux de 5 min comblés depuis %s"
-              % (sid, created, time.strftime("%d/%m/%Y %H:%M", time.localtime(since))))
+        print("%s : en ligne depuis %s"
+              % (sid, time.strftime("%d/%m/%Y %H:%M", time.localtime(since))))
+        for step, n in sorted(created.items()):
+            if n:
+                print("   palier %ss : %d créneaux comblés" % (step, n))
 
     for sid, buckets in state["history"].items():
         detail = ", ".join("%ss:%d" % (step, len(slots)) for step, slots in sorted(buckets.items(), key=lambda kv: int(kv[0])))
