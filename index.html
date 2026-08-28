@@ -179,6 +179,7 @@
         align-items: flex-end;
         margin-bottom: 0.35rem;
     }
+    .history-bars.dense { gap: 1px; }
     .bar {
         flex: 1;
         height: 100%;
@@ -206,12 +207,19 @@
     }
 
     .history-ticks {
-        display: flex;
-        justify-content: space-between;
+        position: relative;
+        height: 1.05rem;
         font-size: 0.725rem;
         color: var(--text-muted);
-        padding: 0 2px;
+        margin: 0 2px;
     }
+    .history-ticks span {
+        position: absolute;
+        top: 0;
+        white-space: nowrap;
+        transform: translateX(-50%);
+    }
+    .history-ticks span.edge { transform: none; }
 
     #tooltip {
         position: fixed;
@@ -358,7 +366,16 @@ const I18N = {
 
 const TF_ORDER = ["5h", "1d", "7d", "30d", "90d", "all"];
 const TF_SECONDS = { "5h": 5 * 3600, "1d": 86400, "7d": 7 * 86400, "30d": 30 * 86400, "90d": 90 * 86400 };
-const BARS = 60;
+/* Pas de barre : un diviseur rond de la période, pour que chaque bâtonnet couvre
+   un intervalle lisible (5 min, 30 min, 3 h, 12 h, 1 j) et démarre sur une heure ronde. */
+const TF_STEP = { "5h": 300, "1d": 1800, "7d": 3 * 3600, "30d": 12 * 3600, "90d": 86400 };
+/* Échelle de pas ronds pour la période « all », dont la durée est variable. */
+const STEP_LADDER = [300, 600, 900, 1800, 3600, 2 * 3600, 3 * 3600, 6 * 3600, 12 * 3600,
+                     86400, 2 * 86400, 7 * 86400];
+/* Échelle des graduations : on retient le premier pas qui tient en ~6 intervalles. */
+const TICK_LADDER = [3600, 2 * 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400,
+                     2 * 86400, 7 * 86400, 14 * 86400, 30 * 86400];
+const MAX_BARS = 90;
 const POLL_MS = 60000;
 
 /* ---------------------------------------------------------------- state */
@@ -421,10 +438,18 @@ function formatDateTime(ts) {
     return fmt("fullDate").format(d) + t().at + fmt("time").format(d);
 }
 
+function isLocalMidnight(ts) {
+    const d = new Date(ts * 1000);
+    return d.getHours() === 0 && d.getMinutes() === 0;
+}
+
 function formatTick(ts, totalSecs) {
     const d = new Date(ts * 1000);
     if (totalSecs <= 86400) return fmt("time").format(d);
-    if (totalSecs <= 7 * 86400) return fmt("dayMonth").format(d) + " " + fmt("time").format(d);
+    // Sur les périodes longues, une graduation posée sur minuit se lit mieux sans l'heure.
+    if (totalSecs <= 7 * 86400 && !isLocalMidnight(ts)) {
+        return fmt("dayMonth").format(d) + " " + fmt("time").format(d);
+    }
     return fmt("dayMonth").format(d);
 }
 
@@ -542,10 +567,52 @@ function stateAt(trs, ts) {
     return res;
 }
 
-function timeframeSeconds(oldestTs) {
-    if (TF !== "all") return TF_SECONDS[TF];
+/* Aligne un instant sur le multiple de `step` inférieur, dans le fuseau local :
+   les bornes des barres tombent ainsi sur des heures rondes (et sur minuit pour
+   les pas d'un jour ou plus), pas sur l'instant arbitraire du dernier check. */
+function alignDown(ts, step) {
+    const offset = new Date(ts * 1000).getTimezoneOffset() * 60;   // UTC = local + offset
+    return Math.floor((ts - offset) / step) * step + offset;
+}
+
+/* Géométrie de l'historique : pas rond, nombre de barres, fenêtre alignée.
+   La dernière barre est celle en cours, donc la fenêtre finit après `now`.
+   `minStep` sert à « all » : découper plus fin que la série disponible ne
+   ferait qu'ajouter des barres vides. */
+function historyLayout(oldestTs, minStep) {
     const now = serverNow();
-    return Math.max(now - (oldestTs || now - 5 * 3600), 5 * 3600);
+
+    if (TF !== "all") {
+        const step = TF_STEP[TF];
+        const bars = Math.round(TF_SECONDS[TF] / step);
+        const endSecs = alignDown(now, step) + step;
+        return { step, bars, startSecs: endSecs - bars * step, totalSecs: bars * step };
+    }
+
+    const span = Math.max(now - (oldestTs || now - 5 * 3600), 5 * 3600);
+    const step = STEP_LADDER.find(v => v >= (minStep || 0) && span / v <= MAX_BARS)
+        || STEP_LADDER[STEP_LADDER.length - 1];
+    const endSecs = alignDown(now, step) + step;
+    const bars = Math.min(MAX_BARS, Math.max(1, Math.ceil((endSecs - (now - span)) / step)));
+    return { step, bars, startSecs: endSecs - bars * step, totalSecs: bars * step };
+}
+
+/* Graduations posées sur des multiples ronds du temps, à l'intérieur de la fenêtre.
+   Elles sont placées en pourcentage : leur position suit la valeur, pas l'inverse.
+   Les libellés horaires (« 06:00 ») tiennent plus serrés que les dates : on
+   s'autorise donc davantage d'intervalles sur les périodes courtes. */
+function tickPositions(startSecs, totalSecs) {
+    const maxSpans = totalSecs <= 86400 ? 8 : 6.5;
+    const step = TICK_LADDER.find(v => totalSecs / v <= maxSpans) || TICK_LADDER[TICK_LADDER.length - 1];
+    const out = [];
+    let ts = alignDown(startSecs, step);
+    if (ts < startSecs) ts += step;
+    for (; ts <= startSecs + totalSecs; ts += step) {
+        const ratio = (ts - startSecs) / totalSecs;
+        if (ratio > 0.995) break;                // la borne droite porte « maintenant »
+        out.push({ ts, ratio });
+    }
+    return out;
 }
 
 /* -------------------------------------------------------- création des cartes */
@@ -608,29 +675,17 @@ function ensureCards(services) {
         const timerValue = document.createElement("strong");
         timer.append(timerLabel, document.createTextNode(" "), timerValue);
 
+        // Barres et graduations dépendent de la période : elles sont créées au rendu.
         const barsEl = document.createElement("div");
         barsEl.className = "history-bars";
-        const barEls = [];
-        for (let i = 0; i < BARS; i++) {
-            const b = document.createElement("div");
-            b.className = "bar nodata";
-            barsEl.appendChild(b);
-            barEls.push(b);
-        }
 
         const ticksEl = document.createElement("div");
         ticksEl.className = "history-ticks";
-        const tickEls = [];
-        for (let i = 0; i < 5; i++) {
-            const sp = document.createElement("span");
-            ticksEl.appendChild(sp);
-            tickEls.push(sp);
-        }
 
         card.append(header, timer, barsEl, ticksEl);
         list.appendChild(card);
 
-        cards.set(s.id, { pctEl, dtEl, badge, timerLabel, timerValue, barEls, tickEls });
+        cards.set(s.id, { pctEl, dtEl, badge, timerLabel, timerValue, barsEl, ticksEl, barEls: [] });
     }
     list.dataset.ids = ids;
 }
@@ -707,10 +762,77 @@ function renderRecord() {
     ));
 }
 
+/* Ajuste le nombre de barres au nombre demandé sans reconstruire tout le bloc. */
+function syncBars(c, count) {
+    while (c.barEls.length > count) c.barsEl.removeChild(c.barEls.pop());
+    while (c.barEls.length < count) {
+        const b = document.createElement("div");
+        b.className = "bar nodata";
+        c.barsEl.appendChild(b);
+        c.barEls.push(b);
+    }
+    c.barsEl.classList.toggle("dense", count > 60);
+}
+
+/* Écarte les graduations qui se chevauchent : la largeur réelle des libellés
+   dépend de la langue et de la place disponible, on la mesure donc plutôt que
+   de la deviner. « Maintenant » est prioritaire, il borne la droite. */
+function pruneOverlaps(spans, nowSpan) {
+    const GAP = 6;
+    const rects = spans.map(sp => sp.getBoundingClientRect());
+    const nowRect = nowSpan.getBoundingClientRect();
+    let lastRight = -Infinity;
+    for (let i = 0; i < spans.length; i++) {
+        const r = rects[i];
+        if (r.left - GAP < lastRight || r.right + GAP > nowRect.left) {
+            spans[i].remove();
+        } else {
+            lastRight = r.right;
+        }
+    }
+}
+
+function renderTicks(c, startSecs, totalSecs, nowLabel) {
+    c.ticksEl.textContent = "";
+
+    const nowSpan = document.createElement("span");
+    nowSpan.className = "edge";
+    nowSpan.style.right = "0";
+    nowSpan.textContent = nowLabel;
+    c.ticksEl.appendChild(nowSpan);
+
+    const spans = [];
+    for (const tick of tickPositions(startSecs, totalSecs)) {
+        const sp = document.createElement("span");
+        sp.textContent = formatTick(tick.ts, totalSecs);
+        if (tick.ratio < 0.02) {
+            sp.className = "edge";
+            sp.style.left = "0";
+        } else {
+            sp.style.left = (tick.ratio * 100).toFixed(3) + "%";
+        }
+        c.ticksEl.appendChild(sp);
+        spans.push(sp);
+    }
+    pruneOverlaps(spans, nowSpan);
+}
+
+/* Libellé d'une barre : on cale le format sur le pas, pas sur la période. */
+function barLabel(bStart, bEnd, step, totalSecs) {
+    const dStart = new Date(bStart * 1000);
+    if (step >= 86400) {
+        const dLast = new Date((bEnd - 1) * 1000);
+        const a = fmt("dayMonth").format(dStart);
+        const b = fmt("dayMonth").format(dLast);
+        return a === b ? a : a + " - " + b;
+    }
+    const range = fmt("time").format(dStart) + " - " + fmt("time").format(new Date(bEnd * 1000));
+    return totalSecs <= 86400 ? range : fmt("dayMonth").format(dStart) + " " + range;
+}
+
 function renderHistory() {
     if (!DATA || !DATA.services) return;
     const L = t();
-    const now = serverNow();
     // Chaque check couvre un intervalle de sonde : compter les échecs est exact,
     // alors que pondérer par le pas de la série gonfle les créneaux incomplets.
     const interval = DATA.interval || 300;
@@ -729,11 +851,18 @@ function renderHistory() {
         // aucune mesure n'existe encore aussi loin.
         if (trs.length && (oldest === null || trs[0][0] < oldest)) oldest = trs[0][0];
 
-        const totalSecs = timeframeSeconds(oldest);
-        const barSecs = totalSecs / BARS;
-        const startSecs = now - totalSecs;
+        let layout = historyLayout(oldest);
+        let series = pickSeries(hist, layout.totalSecs, layout.step);
+        // Sur « all », si la meilleure série est plus grossière que la barre visée,
+        // on élargit la barre : sinon une barre sur deux resterait vide.
+        if (TF === "all" && series && series.step > layout.step) {
+            layout = historyLayout(oldest, series.step);
+            series = pickSeries(hist, layout.totalSecs, layout.step) || series;
+        }
 
-        const series = pickSeries(hist, totalSecs, barSecs);
+        const { step, bars, startSecs, totalSecs } = layout;
+        syncBars(c, bars);
+
         const pts = series ? series.points : [];
 
         // Balayage linéaire unique : points et barres sont triés dans le même ordre.
@@ -744,9 +873,9 @@ function renderHistory() {
 
         let sumUp = 0, sumTot = 0, downSecs = 0;
 
-        for (let i = 0; i < BARS; i++) {
-            const bStart = startSecs + i * barSecs;
-            const bEnd = bStart + barSecs;
+        for (let i = 0; i < bars; i++) {
+            const bStart = startSecs + i * step;
+            const bEnd = bStart + step;
             let bUp = 0, bTot = 0;
 
             while (p < pts.length && pts[p][0] < bEnd) {
@@ -761,10 +890,7 @@ function renderHistory() {
             sumTot += bTot;
 
             const bar = c.barEls[i];
-            const dStart = new Date(bStart * 1000);
-            const timeStr = totalSecs <= 86400
-                ? fmt("time").format(dStart) + " - " + fmt("time").format(new Date(bEnd * 1000))
-                : fmt("dayMonth").format(dStart) + " " + fmt("time").format(dStart);
+            const timeStr = barLabel(bStart, bEnd, step, totalSecs);
 
             let cls, tip;
             if (bTot === 0) {
@@ -791,10 +917,7 @@ function renderHistory() {
             bar.dataset.tip = tip;
         }
 
-        const ratios = [0, 0.25, 0.5, 0.75, 1];
-        for (let i = 0; i < 5; i++) {
-            c.tickEls[i].textContent = i === 4 ? L.now : formatTick(startSecs + totalSecs * ratios[i], totalSecs);
-        }
+        renderTicks(c, startSecs, totalSecs, L.now);
 
         c.pctEl.textContent = (sumTot > 0 ? ((sumUp / sumTot) * 100).toFixed(1) : "100.0") + "%";
         c.dtEl.textContent = L.downtime + " " + formatDuration(downSecs);
