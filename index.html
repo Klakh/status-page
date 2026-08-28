@@ -192,6 +192,19 @@
     .bar.partial { background-color: var(--partial); }
     .bar.nodata { background-color: #21262d; }
 
+    /* Périodes non mesurées mais déduites du journal des transitions : même
+       teinte que le mesuré, hachurée pour rester distinguable d'une mesure. */
+    .bar.deduced {
+        background-color: transparent;
+        background-image: repeating-linear-gradient(135deg,
+            var(--up) 0 3px, rgba(35, 134, 54, 0.28) 3px 6px);
+    }
+    .bar.deduced-down {
+        background-color: transparent;
+        background-image: repeating-linear-gradient(135deg,
+            var(--down) 0 3px, rgba(218, 54, 51, 0.28) 3px 6px);
+    }
+
     .history-ticks {
         display: flex;
         justify-content: space-between;
@@ -292,6 +305,8 @@ const I18N = {
         downtime: "Downtime :",
         now: "Maintenant",
         noData: "Aucune donnée",
+        deducedUp: "Présumé en ligne (aucune mesure)",
+        deducedDown: "Présumé hors ligne (aucune mesure)",
         uptime: "d'uptime",
         recordInit: "Initialisation...",
         recordWinner: "Gagnant :",
@@ -324,6 +339,8 @@ const I18N = {
         downtime: "Downtime:",
         now: "Now",
         noData: "No data",
+        deducedUp: "Presumed online (no measurement)",
+        deducedDown: "Presumed offline (no measurement)",
         uptime: "uptime",
         recordInit: "Initializing...",
         recordWinner: "Record holder:",
@@ -508,6 +525,23 @@ function pickSeries(hist, totalSecs, barSecs) {
     return best || pool.reduce((a, b) => (b.step < a.step ? b : a));
 }
 
+/* ------------------------------------------------- état déduit des transitions */
+
+/* Les compteurs d'historique ne couvrent que ce qui a été mesuré. Le journal
+   des transitions, lui, dit ce qui était vrai : entre deux transitions l'état
+   ne bouge pas, donc une période sans mesure reste connue. Retourne null avant
+   la première transition — là, on ne sait rien, et on n'invente rien. */
+function stateAt(trs, ts) {
+    if (!trs || !trs.length || ts < trs[0][0]) return null;
+    let lo = 0, hi = trs.length - 1, res = null;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (trs[mid][0] <= ts) { res = trs[mid][1]; lo = mid + 1; }
+        else hi = mid - 1;
+    }
+    return res;
+}
+
 function timeframeSeconds(oldestTs) {
     if (TF !== "all") return TF_SECONDS[TF];
     const now = serverNow();
@@ -686,10 +720,14 @@ function renderHistory() {
         if (!c) continue;
 
         const hist = (DATA.history && DATA.history[s.id]) || [];
+        const trs = (DATA.transitions && DATA.transitions[s.id]) || [];
         let oldest = null;
         for (const ser of hist) {
             if (ser.points.length && (oldest === null || ser.points[0][0] < oldest)) oldest = ser.points[0][0];
         }
+        // "Tout" doit remonter jusqu'à la première transition connue, même si
+        // aucune mesure n'existe encore aussi loin.
+        if (trs.length && (oldest === null || trs[0][0] < oldest)) oldest = trs[0][0];
 
         const totalSecs = timeframeSeconds(oldest);
         const barSecs = totalSecs / BARS;
@@ -730,8 +768,20 @@ function renderHistory() {
 
             let cls, tip;
             if (bTot === 0) {
-                cls = "bar nodata";
-                tip = timeStr + "\n" + L.noData;
+                // Aucune mesure sur ce créneau : on retombe sur l'état connu par
+                // le journal. Les compteurs d'uptime ci-dessous restent, eux,
+                // calculés uniquement sur du mesuré.
+                const st = stateAt(trs, bEnd);
+                if (st === "UP") {
+                    cls = "bar deduced";
+                    tip = timeStr + "\n" + L.deducedUp;
+                } else if (st === "DOWN") {
+                    cls = "bar deduced-down";
+                    tip = timeStr + "\n" + L.deducedDown;
+                } else {
+                    cls = "bar nodata";
+                    tip = timeStr + "\n" + L.noData;
+                }
             } else {
                 const pct = Math.round((bUp / bTot) * 100);
                 cls = bUp === 0 ? "bar down" : (bUp < bTot ? "bar partial" : "bar");

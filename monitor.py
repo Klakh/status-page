@@ -32,6 +32,13 @@ RESOLUTIONS = (
     (86400, 180 * 86400),    # 1 j   sur 180 j  -> 180 points
 )
 
+# Journal des transitions d'état. Les compteurs d'historique ne disent que ce
+# qui a été *mesuré* ; ce journal dit ce qui était *vrai*. Entre deux
+# transitions l'état est connu même sans mesure, ce qui permet à la page de
+# colorer les périodes où le Pi n'a pas sondé (coupure, redémarrage) au lieu
+# de les laisser en trou gris.
+TRANSITIONS_KEEP = 180 * 86400
+
 DEFAULT_TIMEOUT = 5
 MAX_WORKERS = 8
 
@@ -193,6 +200,48 @@ def history_for_output(buckets):
     return out
 
 
+# ------------------------------------------------------------- transitions
+
+def load_transitions(raw):
+    """Normalise le journal lu dans state.json : {sid: [[ts, "UP"|"DOWN"], ...]},
+    trié, en écartant les entrées illisibles plutôt que de planter."""
+    clean = {}
+    if not isinstance(raw, dict):
+        return clean
+    for sid, entries in raw.items():
+        if not isinstance(entries, list):
+            continue
+        kept = []
+        for e in entries:
+            if not isinstance(e, (list, tuple)) or len(e) < 2:
+                continue
+            try:
+                ts = int(e[0])
+            except (TypeError, ValueError):
+                continue
+            status = "UP" if e[1] == "UP" else "DOWN"
+            kept.append([ts, status])
+        kept.sort(key=lambda e: e[0])
+        clean[sid] = kept
+    return clean
+
+
+def prune_transitions(transitions, now_ts):
+    """Purge le journal en conservant la dernière transition antérieure à la
+    fenêtre : c'est elle qui porte l'état au début de la période affichée."""
+    cutoff = now_ts - TRANSITIONS_KEEP
+    for entries in transitions.values():
+        entries.sort(key=lambda e: e[0])
+        keep_from = 0
+        for i, e in enumerate(entries):
+            if e[0] < cutoff:
+                keep_from = i
+            else:
+                break
+        if keep_from:
+            del entries[:keep_from]
+
+
 # ------------------------------------------------------------------ record
 
 def compute_record(previous, services_state, now_ts):
@@ -280,6 +329,7 @@ def main():
 
     old_state = load_state()
     history = migrate_history(old_state.get("history", {}))
+    transitions = load_transitions(old_state.get("transitions", {}))
     finished_record = old_state.get("record_finished", {})
     prev_services = old_state.get("services", {})
 
@@ -298,6 +348,13 @@ def main():
         prev_status = prev.get("status")
         last_change = prev.get("last_change", now_ts)
 
+        # Amorçage du journal : on repart de last_change, ce qui préserve
+        # l'ancienneté déjà connue du service (y compris si elle a été
+        # ajustée à la main dans state.json) au lieu de la perdre.
+        journal = transitions.setdefault(sid, [])
+        if not journal:
+            journal.append([last_change, prev_status or status])
+
         if prev_status and prev_status != status:
             status_changed.append((s["name"], status))
             if prev_status == "UP":
@@ -311,6 +368,7 @@ def main():
                         "duration": duration,
                     }
             last_change = now_ts
+            journal.append([now_ts, status])
 
         services_state[sid] = {
             "name": s["name"],
@@ -330,6 +388,7 @@ def main():
         record_check(history, sid, is_up, now_ts)
 
     prune_history(history, now_ts)
+    prune_transitions(transitions, now_ts)
     record = compute_record(finished_record, services_state, now_ts)
 
     write_json_atomic(DATA_FILE, {
@@ -341,11 +400,13 @@ def main():
             "start": record.get("start_ts"),
             "end": record.get("end_ts"),
         },
+        "transitions": transitions,
         "history": {sid: history_for_output(b) for sid, b in history.items()},
     })
 
     write_json_atomic(STATE_FILE, {
         "services": services_state,
+        "transitions": transitions,
         "history": history,
         "record_finished": finished_record,
     })
