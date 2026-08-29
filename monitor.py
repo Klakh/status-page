@@ -11,6 +11,7 @@ import logging
 import logging.handlers
 import os
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -74,9 +75,13 @@ def _build_logger():
     if logger.handlers:
         return logger
 
-    console = logging.StreamHandler()
-    console.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(console)
+    # Console en interactif seulement. Sous cron, stderr est redirigé vers le
+    # même fichier que le handler tournant : sans ce garde-fou chaque message y
+    # serait écrit deux fois, une fois nu et une fois horodaté.
+    if sys.stderr.isatty():
+        console = logging.StreamHandler()
+        console.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(console)
 
     try:
         rotating = logging.handlers.RotatingFileHandler(
