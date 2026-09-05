@@ -52,6 +52,14 @@ TRANSITIONS_KEEP = 180 * 86400
 DEFAULT_TIMEOUT = 5
 MAX_WORKERS = 8
 
+# Un check est une tentative unique : un pic de latence ou un paquet perdu
+# suffit à le faire échouer alors que le service répond. Sans marge, ce bruit
+# se traduit mécaniquement par de fausses alertes — de l'ordre d'une par jour
+# en régime normal, et par paquets dès que la latence monte. On exige donc deux
+# échecs consécutifs avant de déclarer DOWN. La remontée en UP reste immédiate :
+# un service qui répond est disponible, il n'y a rien à confirmer.
+FAILURES_BEFORE_DOWN = 2
+
 # Journal borné : à une exécution par minute, une redirection shell grossirait
 # d'une trentaine de mégaoctets par an sur la carte SD. Trois fichiers de
 # 256 Ko plafonnent l'ensemble à 768 Ko, soit environ dix jours d'historique.
@@ -514,11 +522,26 @@ def main():
     for s in services_config:
         sid = s["id"]
         is_up = results.get(sid, False)
-        status = "UP" if is_up else "DOWN"
 
         prev = prev_services.get(sid, {})
         prev_status = prev.get("status")
         last_change = prev.get("last_change", now_ts)
+
+        # Débruitage : un échec isolé laisse l'état inchangé (sursis), seul un
+        # second échec consécutif fait basculer en DOWN. Faute d'état antérieur
+        # — tout premier passage — il n'y a rien à maintenir : la mesure fait
+        # foi, sinon un service déjà en panne serait annoncé disponible.
+        if is_up:
+            fail_streak = 0
+            status = "UP"
+        else:
+            fail_streak = prev.get("fail_streak", 0) + 1
+            if fail_streak >= FAILURES_BEFORE_DOWN or not prev_status:
+                status = "DOWN"
+            else:
+                status = prev_status
+                log("%s : échec %d/%d, état maintenu à %s."
+                    % (s["name"], fail_streak, FAILURES_BEFORE_DOWN, status))
 
         # Amorçage du journal : on repart de last_change, ce qui préserve
         # l'ancienneté déjà connue du service (y compris si elle a été
@@ -547,6 +570,7 @@ def main():
             "status": status,
             "last_change": last_change,
             "last_check": now_ts,
+            "fail_streak": fail_streak,
         }
         # Rien d'autre que l'identifiant, le nom codé et l'état : une page de
         # statut publique n'a pas à révéler où vivent les services qu'elle
@@ -559,6 +583,9 @@ def main():
             "since": last_change,
         })
 
+        # La mesure brute, pas l'état débruité : les compteurs d'historique
+        # disent ce qui a été *mesuré*, le journal des transitions ce qui était
+        # *vrai*. Un sursis reste donc visible comme une micro-baisse d'uptime.
         record_check(history, sid, is_up, now_ts)
 
     prune_history(history, now_ts)
