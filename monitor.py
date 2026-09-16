@@ -22,6 +22,7 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 CONFIG_EXAMPLE_FILE = os.path.join(BASE_DIR, "config.json.example")
 STATE_FILE = os.path.join(BASE_DIR, "state.json")
 DATA_FILE = os.path.join(BASE_DIR, "data.json")
+NOTIFY_FILE = os.path.join(BASE_DIR, "notify.json")
 
 # Intervalle nominal entre deux exécutions : DOIT correspondre au cron. C'est
 # la durée qu'un check en échec représente dans le calcul du downtime, et le
@@ -66,6 +67,12 @@ FAILURES_BEFORE_DOWN = 2
 LOG_FILE = os.path.join(BASE_DIR, "status.log")
 LOG_MAX_BYTES = 256 * 1024
 LOG_BACKUPS = 2
+
+# Une alerte non délivrée (Discord injoignable, Pi hors ligne) est retentée à
+# chaque passage, puis abandonnée passé ce délai : prévenir d'une panne réglée
+# depuis longtemps n'apprend plus rien et noierait le salon au retour du réseau.
+ALERT_TIMEOUT = 5
+ALERT_MAX_AGE = 6 * 3600
 
 AUTO_MSG = "Mise à jour automatique des données"
 # Au-delà de cette ancienneté, on ouvre un vrai commit au lieu d'amender,
@@ -231,6 +238,60 @@ def load_state():
 
     log("Aucun état exploitable, démarrage à zéro.")
     return {}
+
+
+# ------------------------------------------------------------------ alertes
+
+def load_webhook():
+    """URL du webhook Discord, lue dans notify.json. Fichier séparé de
+    config.json pour ne pas en changer le format, et ignoré par Git : quiconque
+    connaît l'URL peut poster dans le salon, elle ne doit jamais être publiée.
+    Absent ou illisible, les alertes sont simplement désactivées."""
+    try:
+        with open(NOTIFY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f).get("discord_webhook") or None
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, AttributeError) as e:
+        log("notify.json illisible, alertes désactivées : %s" % e)
+        return None
+
+
+def format_duration(secs):
+    mins = max(1, round(secs / 60))
+    if mins < 60:
+        return "%d min" % mins
+    hours, mins = divmod(mins, 60)
+    if hours < 24:
+        return "%d h %02d" % (hours, mins)
+    days, hours = divmod(hours, 24)
+    return "%d j %d h" % (days, hours)
+
+
+def alert_line(alert):
+    # <t:…> est rendu par Discord dans le fuseau du lecteur : rien à convertir
+    # sur le Pi, et l'heure reste juste même lue avec retard.
+    at = "<t:%d:t>" % alert["ts"]
+    if alert["status"] == "DOWN":
+        return "\U0001F534 **%s** est hors ligne (%s)" % (alert["name"], at)
+    return "\U0001F7E2 **%s** est de nouveau en ligne (%s), après %s d'interruption" % (
+        alert["name"], at, format_duration(alert["outage"]))
+
+
+def send_alerts(webhook, alerts):
+    """Un seul message pour tout le lot : Discord limite le débit par webhook.
+    Retourne True si le message est accepté."""
+    body = json.dumps({"content": "\n".join(alert_line(a) for a in alerts)[:2000]})
+    # Sans User-Agent explicite, Cloudflare rejette celui de urllib (erreur 1010).
+    req = urllib.request.Request(
+        webhook, data=body.encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "StatusMonitor/2.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=ALERT_TIMEOUT):
+            return True
+    except Exception as e:
+        log("Alerte Discord non envoyée, nouvel essai au prochain passage : %s" % e)
+        return False
 
 
 # ------------------------------------------------------------------ checks
@@ -518,6 +579,7 @@ def main():
     services_state = {}
     services_output = []
     status_changed = []
+    pending_alerts = old_state.get("pending_alerts", [])
 
     for s in services_config:
         sid = s["id"]
@@ -552,6 +614,10 @@ def main():
 
         if prev_status and prev_status != status:
             status_changed.append((s["name"], status))
+            pending_alerts.append({
+                "name": s["name"], "status": status, "ts": now_ts,
+                "outage": now_ts - last_change if status == "UP" else 0,
+            })
             if prev_status == "UP":
                 # Série terminée : elle devient candidate au record définitif.
                 duration = now_ts - last_change
@@ -605,6 +671,15 @@ def main():
         "history": {sid: history_for_output(b) for sid, b in history.items()},
     })
 
+    # Avant Git : un push peut prendre des minutes sur le Pi, l'alerte non.
+    pending_alerts = [a for a in pending_alerts if now_ts - a["ts"] < ALERT_MAX_AGE]
+    if pending_alerts:
+        webhook = load_webhook()
+        if not webhook or send_alerts(webhook, pending_alerts):
+            if webhook:
+                log("Alerte Discord envoyée (%d changement(s))." % len(pending_alerts))
+            pending_alerts = []
+
     if status_changed:
         detail = ", ".join("%s -> %s" % (name, st) for name, st in status_changed)
         message, amend = "Alerte : changement d'état (%s)" % detail, False
@@ -642,6 +717,7 @@ def main():
         "history": history,
         "record_finished": finished_record,
         "last_publish": now_ts if published else last_publish,
+        "pending_alerts": pending_alerts,
     })
 
 

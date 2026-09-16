@@ -140,6 +140,33 @@ et ne quitte jamais le Pi ; c'est là qu'on garde les adresses réelles.
 
 Changer un `id` réinitialise l'historique du service concerné.
 
+## Alertes Discord
+
+Chaque changement d'état est envoyé dans un salon Discord via un webhook
+(Paramètres du salon → Intégrations → Webhooks → copier l'URL) :
+
+```bash
+cp notify.json.example notify.json
+$EDITOR notify.json
+```
+
+Sans `notify.json`, aucune alerte n'est envoyée. Le fichier est ignoré par Git :
+quiconque connaît l'URL peut écrire dans le salon.
+
+- L'alerte part **avant** le commit + push, pour ne pas attendre Git.
+- Si Discord est injoignable, l'alerte est gardée dans `state.json` et
+  retentée à chaque passage, puis abandonnée au bout de 6 h.
+- Le retour en ligne indique la durée de l'interruption.
+
+Le Pi ne peut pas annoncer sa propre panne. Pour ça, un service externe du type
+[healthchecks.io](https://healthchecks.io) (gratuit) fait « homme mort » : le
+cron le ping à chaque passage, et il prévient sur Discord ou par mail quand les
+pings cessent :
+
+```cron
+* * * * * /usr/bin/python3 /home/dietpi/status-page/monitor.py && curl -fsS -m 10 --retry 3 -o /dev/null https://hc-ping.com/<uuid>
+```
+
 ## Publication Git
 
 - Changement d'état d'un service → commit dédié (`Alerte : changement d'état`).
