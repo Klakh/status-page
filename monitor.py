@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Sonde de disponibilité pour status.keeklah.fr.
 
-Conçu pour tourner sur un Raspberry Pi 1 B+ (ARM11 monocoeur, 512 Mo) via cron.
+Conçu pour tourner sur un Raspberry Pi 1 B rev2 (ARM11 monocoeur, 512 Mo) en
+service systemd persistant (voir monitor.service) : le processus reste vivant
+et sonde à intervalle court, ce qui donne un downtime précis à quelques
+secondes plutôt qu'à la minute. `--once` fait un passage unique et quitte,
+pour un lancement manuel ou un test.
 Le script ne produit que des *données* (data.json) : la présentation vit
 entièrement dans index.html, qui recharge data.json tout seul côté navigateur.
 """
@@ -10,6 +14,7 @@ import json
 import logging
 import logging.handlers
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -24,10 +29,23 @@ STATE_FILE = os.path.join(BASE_DIR, "state.json")
 DATA_FILE = os.path.join(BASE_DIR, "data.json")
 NOTIFY_FILE = os.path.join(BASE_DIR, "notify.json")
 
-# Intervalle nominal entre deux exécutions : DOIT correspondre au cron. C'est
-# la durée qu'un check en échec représente dans le calcul du downtime, et le
-# seuil à partir duquel la page signale des données périmées.
-CHECK_INTERVAL = 60
+# Intervalle entre deux sondes. C'est la durée qu'un check en échec représente
+# dans le calcul du downtime (publiée telle quelle dans data.json comme
+# "interval", relue par index.html), et donc la borne basse de la précision
+# affichée. Sonder est bon marché sur un LAN — le coût est réseau, pas CPU, et
+# un Pi 1 B monocoeur passe le plus clair de son temps à dormir entre deux
+# checks — donc rien n'empêche de descendre bas ; la vraie limite est plus bas
+# (STATE_FLUSH_EVERY), pas ici.
+POLL_INTERVAL = 5
+
+# Écrire sur la carte SD est le seul coût réel de sonder souvent : à chaque
+# écriture, write_json_atomic fait un fsync. Sonder toutes les POLL_INTERVAL
+# secondes mais écrire data.json/state.json à cette même cadence userait la
+# carte SD bien plus vite qu'avant. On garde donc le même budget d'écriture
+# qu'à l'époque du cron à la minute : une sauvegarde locale au plus toutes les
+# STATE_FLUSH_EVERY secondes, sauf changement d'état, où elle reste immédiate
+# — c'est justement l'instant qui doit être précis, pas l'attente entre deux.
+STATE_FLUSH_EVERY = 60
 
 # Sonder est bon marché, publier ne l'est pas : un commit + push TLS coûte bien
 # plus cher au Pi que quelques requêtes HTTP. On sonde donc à chaque passage
@@ -55,15 +73,17 @@ MAX_WORKERS = 8
 
 # Un check est une tentative unique : un pic de latence ou un paquet perdu
 # suffit à le faire échouer alors que le service répond. Sans marge, ce bruit
-# se traduit mécaniquement par de fausses alertes — de l'ordre d'une par jour
-# en régime normal, et par paquets dès que la latence monte. On exige donc deux
-# échecs consécutifs avant de déclarer DOWN. La remontée en UP reste immédiate :
-# un service qui répond est disponible, il n'y a rien à confirmer.
+# se traduit mécaniquement par de fausses alertes. On exige donc deux échecs
+# consécutifs avant de déclarer DOWN — avec POLL_INTERVAL secondes entre deux
+# sondes, une panne est donc confirmée au plus tard 2 * POLL_INTERVAL secondes
+# après son début. La remontée en UP reste immédiate : un service qui répond
+# est disponible, il n'y a rien à confirmer.
 FAILURES_BEFORE_DOWN = 2
 
-# Journal borné : à une exécution par minute, une redirection shell grossirait
-# d'une trentaine de mégaoctets par an sur la carte SD. Trois fichiers de
-# 256 Ko plafonnent l'ensemble à 768 Ko, soit environ dix jours d'historique.
+# Journal borné : les lignes ne s'écrivent qu'aux passages qui comptent (sonde
+# en échec, publication, changement d'état — voir STATE_FLUSH_EVERY), pas à
+# chaque sonde, donc le volume reste du même ordre qu'à l'époque du cron à la
+# minute. Trois fichiers de 256 Ko plafonnent l'ensemble à 768 Ko.
 LOG_FILE = os.path.join(BASE_DIR, "status.log")
 LOG_MAX_BYTES = 256 * 1024
 LOG_BACKUPS = 2
@@ -258,7 +278,10 @@ def load_webhook():
 
 
 def format_duration(secs):
-    mins = max(1, round(secs / 60))
+    secs = max(1, round(secs))
+    if secs < 60:
+        return "%d s" % secs
+    mins = round(secs / 60)
     if mins < 60:
         return "%d min" % mins
     hours, mins = divmod(mins, 60)
@@ -563,23 +586,26 @@ def compact_repo():
 
 # -------------------------------------------------------------------- main
 
-def main():
-    services_config = load_config()
-    now_ts = int(time.time())
+def run_tick(services_config, state, now_ts):
+    """Une sonde. Met à jour `state` (services/transitions/history/
+    record_finished/pending_alerts) en place et renvoie (services_output,
+    status_changed, transitioned) pour ce passage.
 
-    old_state = load_state()
-    history = migrate_history(old_state.get("history", {}))
-    transitions = load_transitions(old_state.get("transitions", {}))
-    finished_record = old_state.get("record_finished", {})
-    last_publish = old_state.get("last_publish", 0)
-    prev_services = old_state.get("services", {})
-
+    Logique inchangée depuis la version cron — seule la source de `state` a
+    changé : elle vient de la mémoire du processus, pas d'une relecture disque
+    à chaque passage.
+    """
     results = run_checks(services_config)
+
+    prev_services = state["services"]
+    transitions = state["transitions"]
+    history = state["history"]
+    finished_record = state["record_finished"]
 
     services_state = {}
     services_output = []
     status_changed = []
-    pending_alerts = old_state.get("pending_alerts", [])
+    transitioned = False
 
     for s in services_config:
         sid = s["id"]
@@ -613,8 +639,9 @@ def main():
             journal.append([last_change, prev_status or status])
 
         if prev_status and prev_status != status:
+            transitioned = True
             status_changed.append((s["name"], status))
-            pending_alerts.append({
+            state["pending_alerts"].append({
                 "name": s["name"], "status": status, "ts": now_ts,
                 "outage": now_ts - last_change if status == "UP" else 0,
             })
@@ -654,71 +681,136 @@ def main():
         # *vrai*. Un sursis reste donc visible comme une micro-baisse d'uptime.
         record_check(history, sid, is_up, now_ts)
 
-    prune_history(history, now_ts)
-    prune_transitions(transitions, now_ts)
-    record = compute_record(finished_record, services_state, now_ts)
+    state["services"] = services_state
+    state["record_finished"] = finished_record
+    return services_output, status_changed, transitioned
 
-    write_json_atomic(DATA_FILE, {
-        "t": now_ts,
-        "interval": CHECK_INTERVAL,
-        "services": services_output,
-        "record": {
-            "name": record.get("name"),
-            "start": record.get("start_ts"),
-            "end": record.get("end_ts"),
-        },
-        "transitions": transitions,
-        "history": {sid: history_for_output(b) for sid, b in history.items()},
-    })
 
-    # Avant Git : un push peut prendre des minutes sur le Pi, l'alerte non.
-    pending_alerts = [a for a in pending_alerts if now_ts - a["ts"] < ALERT_MAX_AGE]
-    if pending_alerts:
-        webhook = load_webhook()
-        if not webhook or send_alerts(webhook, pending_alerts):
-            if webhook:
-                log("Alerte Discord envoyée (%d changement(s))." % len(pending_alerts))
-            pending_alerts = []
+def main():
+    services_config = load_config()
+    once = "--once" in sys.argv[1:]
 
-    if status_changed:
-        detail = ", ".join("%s -> %s" % (name, st) for name, st in status_changed)
-        message, amend = "Alerte : changement d'état (%s)" % detail, False
-    else:
-        message = AUTO_MSG
-        amend = (
-            SQUASH_AUTO_COMMITS
-            and head_subject() == AUTO_MSG
-            and head_age(now_ts) < NEW_COMMIT_EVERY
+    old_state = load_state()
+    state = {
+        "services": old_state.get("services", {}),
+        "transitions": load_transitions(old_state.get("transitions", {})),
+        "history": migrate_history(old_state.get("history", {})),
+        "record_finished": old_state.get("record_finished", {}),
+        "pending_alerts": old_state.get("pending_alerts", []),
+    }
+    last_publish = old_state.get("last_publish", 0)
+    # Absent d'un state.json d'avant cette version : on part du principe que
+    # tout a déjà été écrit au moins une fois plutôt que de forcer un flush
+    # immédiat qui n'apprendrait rien.
+    last_flush = old_state.get("last_flush", last_publish)
+
+    # SIGTERM (arrêt systemd) et SIGINT (Ctrl-C manuel) terminent la boucle
+    # proprement après le passage en cours au lieu de couper une écriture
+    # disque en plein milieu.
+    stop_requested = False
+
+    def request_stop(signum, frame):
+        nonlocal stop_requested
+        stop_requested = True
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+
+    while True:
+        loop_start = time.monotonic()
+        now_ts = int(time.time())
+
+        services_output, status_changed, transitioned = run_tick(services_config, state, now_ts)
+
+        due_publish = bool(status_changed) or now_ts - last_publish >= PUBLISH_EVERY
+        # Un changement d'état ou une publication imminente doivent atteindre
+        # le disque immédiatement (git a besoin de data.json à jour) ; sinon,
+        # on respecte le budget d'écriture de STATE_FLUSH_EVERY. `once`/l'arrêt
+        # forcent aussi un flush final, pour ne jamais quitter sur une sonde
+        # non enregistrée.
+        due_flush = (
+            transitioned or due_publish or once or stop_requested
+            or now_ts - last_flush >= STATE_FLUSH_EVERY
         )
 
-    published = False
-    due = status_changed or now_ts - last_publish >= PUBLISH_EVERY
-    if not due:
-        # Un saut silencieux se confond avec une panne : on dit toujours pourquoi.
-        log("sondé, pas publié : prochaine publication dans %ds."
-            % (PUBLISH_EVERY - (now_ts - last_publish)))
-    if due:
-        try:
-            published = publish(message, amend)
-            if published:
-                log("publié : %s%s" % (message, " (amend)" if amend else ""))
-                if not amend:
-                    compact_repo()
-        except subprocess.TimeoutExpired:
-            log("Git : délai dépassé.")
-        except subprocess.CalledProcessError as e:
-            log("Git a échoué : %s" % (e.stderr or "").strip())
+        if due_flush:
+            prune_history(state["history"], now_ts)
+            prune_transitions(state["transitions"], now_ts)
+            record = compute_record(state["record_finished"], state["services"], now_ts)
+            write_json_atomic(DATA_FILE, {
+                "t": now_ts,
+                "interval": POLL_INTERVAL,
+                "services": services_output,
+                "record": {
+                    "name": record.get("name"),
+                    "start": record.get("start_ts"),
+                    "end": record.get("end_ts"),
+                },
+                "transitions": state["transitions"],
+                "history": {sid: history_for_output(b) for sid, b in state["history"].items()},
+            })
+            last_flush = now_ts
 
-    # État écrit en dernier : si la publication échoue, last_publish n'avance
-    # pas et le prochain passage retentera au lieu d'attendre l'intervalle.
-    write_json_atomic(STATE_FILE, {
-        "services": services_state,
-        "transitions": transitions,
-        "history": history,
-        "record_finished": finished_record,
-        "last_publish": now_ts if published else last_publish,
-        "pending_alerts": pending_alerts,
-    })
+        # Avant Git : un push peut prendre des minutes sur le Pi, l'alerte non.
+        # Indépendant du flush disque : une alerte ne doit jamais attendre.
+        state["pending_alerts"] = [
+            a for a in state["pending_alerts"] if now_ts - a["ts"] < ALERT_MAX_AGE
+        ]
+        if state["pending_alerts"]:
+            webhook = load_webhook()
+            if not webhook or send_alerts(webhook, state["pending_alerts"]):
+                if webhook:
+                    log("Alerte Discord envoyée (%d changement(s))." % len(state["pending_alerts"]))
+                state["pending_alerts"] = []
+
+        published = False
+        if due_publish:
+            if status_changed:
+                detail = ", ".join("%s -> %s" % (name, st) for name, st in status_changed)
+                message, amend = "Alerte : changement d'état (%s)" % detail, False
+            else:
+                message = AUTO_MSG
+                amend = (
+                    SQUASH_AUTO_COMMITS
+                    and head_subject() == AUTO_MSG
+                    and head_age(now_ts) < NEW_COMMIT_EVERY
+                )
+            try:
+                published = publish(message, amend)
+                if published:
+                    log("publié : %s%s" % (message, " (amend)" if amend else ""))
+                    if not amend:
+                        compact_repo()
+            except subprocess.TimeoutExpired:
+                log("Git : délai dépassé.")
+            except subprocess.CalledProcessError as e:
+                log("Git a échoué : %s" % (e.stderr or "").strip())
+        elif due_flush:
+            # Un saut silencieux se confond avec une panne : on dit toujours
+            # pourquoi, mais seulement au rythme du flush, pas à chaque sonde.
+            log("sondé, pas publié : prochaine publication dans %ds."
+                % (PUBLISH_EVERY - (now_ts - last_publish)))
+
+        # État écrit en dernier : si la publication échoue, last_publish n'avance
+        # pas et le prochain flush dû retentera au lieu d'attendre l'intervalle.
+        if due_flush:
+            if published:
+                last_publish = now_ts
+            write_json_atomic(STATE_FILE, {
+                "services": state["services"],
+                "transitions": state["transitions"],
+                "history": state["history"],
+                "record_finished": state["record_finished"],
+                "last_publish": last_publish,
+                "last_flush": last_flush,
+                "pending_alerts": state["pending_alerts"],
+            })
+
+        if once or stop_requested:
+            break
+
+        elapsed = time.monotonic() - loop_start
+        time.sleep(max(0.0, POLL_INTERVAL - elapsed))
 
 
 if __name__ == "__main__":

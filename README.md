@@ -43,7 +43,7 @@ git clone git@github.com:Klakh/status-page.git
 cd status-page
 cp config.json.example config.json
 $EDITOR config.json
-python3 monitor.py          # premier passage
+python3 monitor.py --once   # premier passage, quitte après
 ```
 
 `config.json` et `state.json` sont ignorés par Git : la configuration reste
@@ -85,31 +85,46 @@ Dans les deux cas le remplissage respecte la rétention de chaque palier : une
 date vieille de plusieurs mois ne crée pas de créneaux de 5 min qui seraient
 élagués au passage suivant.
 
-### Cron
+### Service systemd
 
-```cron
-* * * * * /usr/bin/python3 /home/dietpi/status-page/monitor.py
+`monitor.py` tourne en processus persistant (plus en cron) : il sonde toutes
+les `POLL_INTERVAL` secondes sans jamais recharger l'état depuis le disque
+entre deux sondes, ce qui rend le downtime affiché précis à quelques secondes
+au lieu d'à la minute.
+
+```bash
+sudo cp monitor.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now monitor.service
 ```
 
-Aucune redirection : `monitor.py` tient lui-même son journal dans
-`status.log`, avec rotation par taille — trois fichiers de 256 Ko, soit 768 Ko
-au plus, une dizaine de jours à raison d'une exécution par minute. Le fichier
-est ignoré par Git.
+Adapter `User=` et les chemins dans `monitor.service` s'ils diffèrent de
+`/home/dietpi/status-page`. `Restart=always` relance le service s'il plante ;
+`journalctl -u monitor -f` montre les tracebacks éventuels, `status.log` le
+reste (échecs de check, publications).
 
-Rediriger depuis le cron serait une mauvaise idée à deux titres : vers
-`/var/log`, la redirection échoue avant que la commande démarre et cron
-n'exécute alors rien du tout, sans que rien n'apparaisse nulle part ; ailleurs,
-elle double les lignes déjà écrites par le journal et grossit sans limite.
+`python3 monitor.py --once` reste disponible pour un passage unique manuel
+(test, dépannage) — c'est aussi ce que fait un premier lancement.
 
-Sonder et publier sont découplés : la sonde tourne à chaque passage, mais un
-commit + push n'a lieu qu'au bout de `PUBLISH_EVERY` secondes — sauf changement
-d'état, poussé immédiatement. Une minute de précision ne coûte donc pas
-1440 push par jour au Pi.
+Trois cadences distinctes, de la plus chère à la moins chère, chacune
+indépendante des deux autres :
 
-`CHECK_INTERVAL` **doit** correspondre au cron : c'est la durée qu'un check en
-échec représente dans le downtime, et le seuil d'obsolescence affiché par la
-page. Le changer ne réinterprète pas l'historique déjà enregistré à une autre
-cadence ; l'écart se résorbe au fil de la rétention.
+- **Sonder** (`POLL_INTERVAL`, 5 s par défaut) : une requête HTTP sur le LAN,
+  quasi gratuite. C'est elle qui borne la précision du downtime — une panne
+  est confirmée au plus tard `FAILURES_BEFORE_DOWN * POLL_INTERVAL` secondes
+  après son début.
+- **Écrire sur la carte SD** (`STATE_FLUSH_EVERY`, 60 s par défaut) :
+  `data.json`/`state.json` ne sont réécrits (avec `fsync`) qu'à ce rythme, sauf
+  changement d'état où c'est immédiat — c'est justement l'instant qui doit
+  être précis, pas l'attente entre deux. Sonder plus vite n'use donc pas la
+  carte SD plus vite.
+- **Publier** (`PUBLISH_EVERY`, 300 s par défaut) : un commit + push coûte bien
+  plus cher qu'une écriture locale. Sonder plus souvent ne pousse donc pas
+  plus souvent.
+
+Changer `POLL_INTERVAL` ne réinterprète pas l'historique déjà enregistré à une
+autre cadence ; l'écart se résorbe au fil de la rétention (jusqu'à 48 h pour le
+graphe le plus fin).
 
 ## Configuration
 
@@ -159,12 +174,15 @@ quiconque connaît l'URL peut écrire dans le salon.
 - Le retour en ligne indique la durée de l'interruption.
 
 Le Pi ne peut pas annoncer sa propre panne. Pour ça, un service externe du type
-[healthchecks.io](https://healthchecks.io) (gratuit) fait « homme mort » : le
-cron le ping à chaque passage, et il prévient sur Discord ou par mail quand les
-pings cessent :
+[healthchecks.io](https://healthchecks.io) (gratuit) fait « homme mort » : il
+prévient sur Discord ou par mail quand ses pings cessent. Avec `monitor.py` en
+service persistant, ce ping doit venir d'un minuteur systemd indépendant — pas
+d'un `&&` après le script, qui ne s'applique plus — pour continuer à détecter
+un processus figé, pas seulement arrêté :
 
 ```cron
-* * * * * /usr/bin/python3 /home/dietpi/status-page/monitor.py && curl -fsS -m 10 --retry 3 -o /dev/null https://hc-ping.com/<uuid>
+# crontab séparée, uniquement pour le ping "homme mort"
+* * * * * systemctl is-active --quiet monitor.service && curl -fsS -m 10 --retry 3 -o /dev/null https://hc-ping.com/<uuid>
 ```
 
 ## Publication Git

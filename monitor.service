@@ -1,0 +1,15 @@
+[Unit]
+Description=Sonde de disponibilité status-page
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dietpi
+WorkingDirectory=/home/dietpi/status-page
+ExecStart=/usr/bin/python3 /home/dietpi/status-page/monitor.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
