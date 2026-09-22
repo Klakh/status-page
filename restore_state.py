@@ -125,7 +125,7 @@ def main():
             ap.error("service '%s' absent des publications fournies" % sid)
 
         now = int(time.time())
-        interval = sources[-1].get("interval", monitor.CHECK_INTERVAL)
+        interval = sources[-1].get("interval", monitor.POLL_INTERVAL)
         if args.no_backfill:
             created = {}
             print("%s : aucun historique fabriqué, seule la date de mise en "

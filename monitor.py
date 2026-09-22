@@ -36,7 +36,7 @@ NOTIFY_FILE = os.path.join(BASE_DIR, "notify.json")
 # un Pi 1 B monocoeur passe le plus clair de son temps à dormir entre deux
 # checks — donc rien n'empêche de descendre bas ; la vraie limite est plus bas
 # (STATE_FLUSH_EVERY), pas ici.
-POLL_INTERVAL = 5
+POLL_INTERVAL = 1
 
 # Écrire sur la carte SD est le seul coût réel de sonder souvent : à chaque
 # écriture, write_json_atomic fait un fsync. Sonder toutes les POLL_INTERVAL
@@ -71,14 +71,16 @@ TRANSITIONS_KEEP = 180 * 86400
 DEFAULT_TIMEOUT = 5
 MAX_WORKERS = 8
 
-# Un check est une tentative unique : un pic de latence ou un paquet perdu
-# suffit à le faire échouer alors que le service répond. Sans marge, ce bruit
-# se traduit mécaniquement par de fausses alertes. On exige donc deux échecs
-# consécutifs avant de déclarer DOWN — avec POLL_INTERVAL secondes entre deux
-# sondes, une panne est donc confirmée au plus tard 2 * POLL_INTERVAL secondes
-# après son début. La remontée en UP reste immédiate : un service qui répond
-# est disponible, il n'y a rien à confirmer.
-FAILURES_BEFORE_DOWN = 2
+# Un check est une tentative unique : un pic de latence, un paquet perdu ou un
+# redémarrage de service de deux secondes suffit à le faire échouer alors que
+# le service est en réalité disponible. Sans marge, ce bruit se traduit
+# mécaniquement par de fausses alertes. On exige donc que l'échec tienne au
+# moins CONFIRM_DOWN_AFTER secondes avant de déclarer DOWN — une durée fixe,
+# indépendante de POLL_INTERVAL, pour que descendre l'intervalle de sonde
+# gagne en précision sans rogner cette marge de tolérance. La remontée en UP
+# reste immédiate : un service qui répond est disponible, il n'y a rien à
+# confirmer.
+CONFIRM_DOWN_AFTER = 3
 
 # Journal borné : les lignes ne s'écrivent qu'aux passages qui comptent (sonde
 # en échec, publication, changement d'état — voir STATE_FLUSH_EVERY), pas à
@@ -616,20 +618,24 @@ def run_tick(services_config, state, now_ts):
         last_change = prev.get("last_change", now_ts)
 
         # Débruitage : un échec isolé laisse l'état inchangé (sursis), seul un
-        # second échec consécutif fait basculer en DOWN. Faute d'état antérieur
-        # — tout premier passage — il n'y a rien à maintenir : la mesure fait
-        # foi, sinon un service déjà en panne serait annoncé disponible.
+        # échec qui persiste CONFIRM_DOWN_AFTER secondes fait basculer en DOWN.
+        # first_fail_ts marque le début de la série d'échecs en cours, pas un
+        # compte de checks — la marge de tolérance ne dépend donc pas de
+        # POLL_INTERVAL. Faute d'état antérieur — tout premier passage — il n'y
+        # a rien à maintenir : la mesure fait foi, sinon un service déjà en
+        # panne serait annoncé disponible.
         if is_up:
-            fail_streak = 0
+            first_fail_ts = None
             status = "UP"
         else:
-            fail_streak = prev.get("fail_streak", 0) + 1
-            if fail_streak >= FAILURES_BEFORE_DOWN or not prev_status:
+            first_fail_ts = prev.get("first_fail_ts") or now_ts
+            failing_for = now_ts - first_fail_ts
+            if failing_for >= CONFIRM_DOWN_AFTER or not prev_status:
                 status = "DOWN"
             else:
                 status = prev_status
-                log("%s : échec %d/%d, état maintenu à %s."
-                    % (s["name"], fail_streak, FAILURES_BEFORE_DOWN, status))
+                log("%s : échec depuis %ds, confirmation DOWN dans %ds."
+                    % (s["name"], failing_for, CONFIRM_DOWN_AFTER - failing_for))
 
         # Amorçage du journal : on repart de last_change, ce qui préserve
         # l'ancienneté déjà connue du service (y compris si elle a été
@@ -663,7 +669,7 @@ def run_tick(services_config, state, now_ts):
             "status": status,
             "last_change": last_change,
             "last_check": now_ts,
-            "fail_streak": fail_streak,
+            "first_fail_ts": first_fail_ts,
         }
         # Rien d'autre que l'identifiant, le nom codé et l'état : une page de
         # statut publique n'a pas à révéler où vivent les services qu'elle

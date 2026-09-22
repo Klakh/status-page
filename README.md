@@ -109,10 +109,11 @@ reste (échecs de check, publications).
 Trois cadences distinctes, de la plus chère à la moins chère, chacune
 indépendante des deux autres :
 
-- **Sonder** (`POLL_INTERVAL`, 5 s par défaut) : une requête HTTP sur le LAN,
+- **Sonder** (`POLL_INTERVAL`, 1 s par défaut) : une requête HTTP sur le LAN,
   quasi gratuite. C'est elle qui borne la précision du downtime — une panne
-  est confirmée au plus tard `FAILURES_BEFORE_DOWN * POLL_INTERVAL` secondes
-  après son début.
+  est confirmée au plus tard `CONFIRM_DOWN_AFTER` secondes après son début.
+  Cette marge est une durée fixe, pas un nombre de sondes : descendre
+  `POLL_INTERVAL` gagne donc en précision sans la rogner.
 - **Écrire sur la carte SD** (`STATE_FLUSH_EVERY`, 60 s par défaut) :
   `data.json`/`state.json` ne sont réécrits (avec `fsync`) qu'à ce rythme, sauf
   changement d'état où c'est immédiat — c'est justement l'instant qui doit
