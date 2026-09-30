@@ -250,7 +250,6 @@
         background-image: repeating-linear-gradient(135deg,
             var(--down) 0 3px, rgba(218, 54, 51, 0.28) 3px 6px);
     }
-
     .history-ticks {
         position: relative;
         height: 1.05rem;
@@ -689,9 +688,15 @@ function ensureCards(services) {
         const header = document.createElement("div");
         header.className = "service-header";
 
-        // Ni lien ni icône : la page n'affiche que le nom codé du service.
+        // Ni lien : l'icône est une copie locale (icons/<id>.png), sans URL du service.
         const title = document.createElement("div");
         title.className = "service-title";
+        const icon = document.createElement("img");
+        icon.src = "icons/" + s.id + ".png";
+        icon.alt = "";
+        icon.width = icon.height = 28;
+        icon.onerror = () => icon.remove();
+        title.appendChild(icon);
         const nameSpan = document.createElement("span");
         nameSpan.textContent = s.name;
         title.appendChild(nameSpan);
@@ -900,13 +905,9 @@ function renderHistory() {
 
         let layout = historyLayout(oldest);
         let series = pickSeries(hist, layout.totalSecs, layout.step);
-        // Sur « all », si la meilleure série est plus grossière que la barre visée,
-        // on élargit la barre : sinon une barre sur deux resterait vide.
-        if (TF === "all" && series && series.step > layout.step) {
-            layout = historyLayout(oldest, series.step);
-            series = pickSeries(hist, layout.totalSecs, layout.step) || series;
-        }
-
+        // Sur « all », on garde le pas de la fenêtre même si la série est plus
+        // grossière : les créneaux sans mesure retombent sur l'état déduit du
+        // journal, ce qui garde un nombre de barres comparable à 90j.
         const { step, bars, startSecs, totalSecs } = layout;
         syncBars(c, bars);
 
@@ -935,6 +936,14 @@ function renderHistory() {
 
             sumUp += bUp;
             sumTot += bTot;
+            // Série plus grossière que la barre (« all ») : une barre sans point
+            // propre reprend la mesure du créneau qui la contient, pour éviter
+            // une alternance mesuré / hachuré. Affichage seulement : les
+            // compteurs ci-dessus ne comptent chaque mesure qu'une fois.
+            if (bTot === 0 && series && series.step > step) {
+                const cov = pts.find(pt => pt[0] <= bStart && bStart < pt[0] + series.step);
+                if (cov) { bUp = cov[1]; bTot = cov[2]; }
+            }
 
             const bar = c.barEls[i];
             const timeStr = barLabel(bStart, bEnd, step, totalSecs);
