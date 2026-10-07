@@ -412,16 +412,11 @@ const I18N = {
 
 const TF_ORDER = ["5h", "1d", "7d", "30d", "90d", "all"];
 const TF_SECONDS = { "5h": 5 * 3600, "1d": 86400, "7d": 7 * 86400, "30d": 30 * 86400, "90d": 90 * 86400 };
-/* Pas de barre : un diviseur rond de la période, pour que chaque bâtonnet couvre
-   un intervalle lisible (5 min, 30 min, 3 h, 12 h, 1 j) et démarre sur une heure ronde. */
-const TF_STEP = { "5h": 300, "1d": 1800, "7d": 3 * 3600, "30d": 12 * 3600, "90d": 86400 };
-/* Échelle de pas ronds pour la période « all », dont la durée est variable. */
-const STEP_LADDER = [300, 600, 900, 1800, 3600, 2 * 3600, 3 * 3600, 6 * 3600, 12 * 3600,
-                     86400, 2 * 86400, 7 * 86400];
 /* Échelle des graduations : on retient le premier pas qui tient en ~6 intervalles. */
 const TICK_LADDER = [3600, 2 * 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400,
                      2 * 86400, 7 * 86400, 14 * 86400, 30 * 86400];
-const MAX_BARS = 90;
+/* Every period has this many bars (the 90-day view's, one a day): the bars keep their width. */
+const BARS = 90;
 /* Teinte du bâtonnet en cours, selon ce que sa période laisse déjà voir.
    Absente pour « aucune donnée » : là on ne sait rien, il reste gris. */
 const PENDING_TINT = {
@@ -631,26 +626,17 @@ function alignDown(ts, step) {
     return Math.floor((ts - offset) / step) * step + offset;
 }
 
-/* Géométrie de l'historique : pas rond, nombre de barres, fenêtre alignée.
-   La dernière barre est celle en cours, donc la fenêtre finit après `now`.
-   `minStep` sert à « all » : découper plus fin que la série disponible ne
-   ferait qu'ajouter des barres vides. */
-function historyLayout(oldestTs, minStep) {
+/* History geometry: BARS bars of the period's ninetieth (whole minutes for
+   "all", whose span varies), aligned. The last bar is the current one, so the
+   window ends after `now`. */
+function historyLayout(oldestTs) {
     const now = serverNow();
-
-    if (TF !== "all") {
-        const step = TF_STEP[TF];
-        const bars = Math.round(TF_SECONDS[TF] / step);
-        const endSecs = alignDown(now, step) + step;
-        return { step, bars, startSecs: endSecs - bars * step, totalSecs: bars * step };
-    }
-
-    const span = Math.max(now - (oldestTs || now - 5 * 3600), 5 * 3600);
-    const step = STEP_LADDER.find(v => v >= (minStep || 0) && span / v <= MAX_BARS)
-        || STEP_LADDER[STEP_LADDER.length - 1];
+    const span = TF === "all"
+        ? Math.max(now - (oldestTs || now - 5 * 3600), 5 * 3600)
+        : TF_SECONDS[TF];
+    const step = TF === "all" ? Math.ceil(span / BARS / 60) * 60 : span / BARS;
     const endSecs = alignDown(now, step) + step;
-    const bars = Math.min(MAX_BARS, Math.max(1, Math.ceil((endSecs - (now - span)) / step)));
-    return { step, bars, startSecs: endSecs - bars * step, totalSecs: bars * step };
+    return { step, bars: BARS, startSecs: endSecs - BARS * step, totalSecs: BARS * step };
 }
 
 /* Graduations posées sur des multiples ronds du temps, à l'intérieur de la fenêtre.
