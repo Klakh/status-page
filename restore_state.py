@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Reconstruit state.json à partir d'une ou plusieurs publications data.json.
+"""Rebuilds state.json from one or more data.json publications.
 
-Sert à deux choses :
+Two uses:
 
-  - remonter l'état après une perte (clone neuf, carte SD, publication
-    accidentelle par-dessus l'historique) : data.json est versionné, donc
-    n'importe quel commit sain fait une source de vérité ;
-  - déclarer qu'un service était en ligne sur une période non mesurée, pour
-    combler les zones grises d'une interruption connue de la sonde.
+  - recovering the state after a loss (fresh clone, SD card, accidental
+    publication over the history): data.json is versioned, so any sound
+    commit is a source of truth;
+  - declaring that a service was online over an unmeasured period, to fill
+    the grey areas of a known interruption of the probe.
 
-Exemple :
+Example:
 
-    git show <commit-sain>:data.json > /tmp/bon.json
-    python3 restore_state.py --data /tmp/bon.json --data data.json \\
+    git show <sound-commit>:data.json > /tmp/good.json
+    python3 restore_state.py --data /tmp/good.json --data data.json \\
                              --up ktv --since-epoch 1787779800
     python3 monitor.py
 """
@@ -28,10 +28,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def merge_histories(sources):
-    """Union des historiques, par résolution puis par créneau.
+    """Union of the histories, by resolution then by slot.
 
-    Deux publications peuvent décrire le même créneau ; on garde celle qui
-    porte le plus de checks, c'est-à-dire la plus complète.
+    Two publications may describe the same slot; the one carrying the most
+    checks, i.e. the most complete, wins.
     """
     merged = {}
     for data in sources:
@@ -48,18 +48,18 @@ def merge_histories(sources):
 
 
 def fill_up(buckets, since, until, interval):
-    """Déclare le service en ligne sur [since, until].
+    """Declares the service online over [since, until].
 
-    Chaque palier est comblé indépendamment, et seulement à l'intérieur de sa
-    propre rétention : créer des créneaux de 5 min vieux de six mois pour les
-    voir supprimés au passage suivant ne produirait qu'un fichier obèse et une
-    attente inutile. Un créneau déjà présent n'est jamais écrasé — la mesure
-    réelle prime toujours sur la déclaration.
+    Each tier is filled on its own, and only within its own retention:
+    creating six-month-old 5-min slots only to see them pruned on the next
+    pass would just make a bloated file and a useless wait. A slot already
+    present is never overwritten — the real measurement always beats the
+    declaration.
     """
     created = {}
     for step, keep in monitor.RESOLUTIONS:
         slots = buckets.setdefault(str(step), {})
-        # Un créneau déclaré porte ce qu'une sonde y aurait relevé.
+        # A declared slot carries what a probe would have recorded there.
         per_slot = max(1, step // interval)
         window_start = max(since, until - keep)
         if window_start > until:
@@ -79,35 +79,35 @@ def fill_up(buckets, since, until, interval):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data", action="append", required=True, metavar="FICHIER",
-                    help="publication data.json à intégrer ; répétable, du plus ancien au plus récent")
+    ap.add_argument("--data", action="append", required=True, metavar="FILE",
+                    help="data.json publication to merge; repeatable, oldest first")
     ap.add_argument("--up", metavar="ID",
-                    help="service à déclarer en ligne sur la période comblée")
+                    help="service to declare online over the filled period")
     ap.add_argument("--since-epoch", type=int, metavar="TS",
-                    help="début de la période, en secondes epoch")
-    ap.add_argument("--since", metavar="'AAAA-MM-JJ HH:MM'",
-                    help="idem, lu dans le fuseau de la machine")
+                    help="start of the period, in epoch seconds")
+    ap.add_argument("--since", metavar="'YYYY-MM-DD HH:MM'",
+                    help="same, read in the machine's time zone")
     ap.add_argument("--no-backfill", action="store_true",
-                    help="ne pas fabriquer d'historique : dater seulement la mise "
-                         "en ligne, les périodes non mesurées seront affichées "
-                         "comme présumées plutôt que comme relevées")
+                    help="do not fabricate history: only date the return "
+                         "online, the unmeasured periods will be shown as "
+                         "presumed rather than as recorded")
     ap.add_argument("--dry-run", action="store_true",
-                    help="afficher le résultat sans écrire state.json")
+                    help="show the result without writing state.json")
     args = ap.parse_args()
 
     sources = []
     for path in args.data:
         with open(path, "r", encoding="utf-8") as f:
             sources.append(json.load(f))
-        print("lu : %s" % path)
+        print("read: %s" % path)
 
-    # Le dernier fichier fait foi pour l'état courant ; les précédents ne
-    # servent qu'à réalimenter l'historique.
+    # The last file rules the current state; the earlier ones only feed the
+    # history.
     state = monitor.state_from_data(sources[-1])
     state["history"] = merge_histories(sources)
-    # Une restauration existe pour être publiée : sans cela, last_publish
-    # hérité de data.json ferait sauter la publication au prochain monitor.py,
-    # et le travail resterait invisible pendant tout l'intervalle.
+    # A restoration is meant to be published: otherwise last_publish
+    # inherited from data.json would skip the publication on the next
+    # monitor.py, and the work would stay invisible for the whole interval.
     state["last_publish"] = 0
 
     if args.up:
@@ -115,50 +115,50 @@ def main():
             since = args.since_epoch
         elif args.since:
             since = int(time.mktime(time.strptime(args.since, "%Y-%m-%d %H:%M")))
-            print("--since interprété en %s, fuseau de cette machine."
+            print("--since read as %s, this machine's time zone."
                   % time.strftime("%Z", time.localtime(since)))
         else:
-            ap.error("--up demande --since-epoch ou --since")
+            ap.error("--up needs --since-epoch or --since")
 
         sid = args.up
         if sid not in state["services"]:
-            ap.error("service '%s' absent des publications fournies" % sid)
+            ap.error("service '%s' missing from the given publications" % sid)
 
         now = int(time.time())
         interval = sources[-1].get("interval", monitor.POLL_INTERVAL)
         if args.no_backfill:
             created = {}
-            print("%s : aucun historique fabriqué, seule la date de mise en "
-                  "ligne est posée." % sid)
+            print("%s: no history fabricated, only the return online is "
+                  "dated." % sid)
         else:
             created = fill_up(state["history"].setdefault(sid, {}), since, now, interval)
 
         state["services"][sid]["status"] = "UP"
         state["services"][sid]["last_change"] = since
-        # Une seule transition, à l'origine de la période : tout ce qui suit est
-        # connu comme en ligne, donc plus aucune zone grise sur le graphe.
+        # A single transition, at the start of the period: everything after
+        # it is known online, so no grey area is left on the graph.
         state["transitions"][sid] = [[since, "UP"]]
         state["record_finished"] = {}
 
-        # Le fuseau est affiché explicitement : sur une machine en UTC, lire
-        # une heure locale sans l'étiquette invite à croire à une erreur de
-        # deux heures qui n'existe pas — ou à en commettre une vraie avec --since.
-        print("%s : en ligne depuis %s (epoch %d)"
+        # The time zone is shown explicitly: on a machine in UTC, reading a
+        # local time without its label invites believing in a two-hour error
+        # that does not exist — or making a real one with --since.
+        print("%s: online since %s (epoch %d)"
               % (sid, time.strftime("%d/%m/%Y %H:%M %Z", time.localtime(since)), since))
         for step, n in sorted(created.items()):
             if n:
-                print("   palier %ss : %d créneaux comblés" % (step, n))
+                print("   tier %ss: %d slots filled" % (step, n))
 
     for sid, buckets in state["history"].items():
         detail = ", ".join("%ss:%d" % (step, len(slots)) for step, slots in sorted(buckets.items(), key=lambda kv: int(kv[0])))
         print("%s -> %s" % (sid, detail))
 
     if args.dry_run:
-        print("--dry-run : state.json inchangé")
+        print("--dry-run: state.json unchanged")
         return
 
     monitor.write_json_atomic(monitor.STATE_FILE, state)
-    print("state.json écrit. Lancer monitor.py pour republier.")
+    print("state.json written. Run monitor.py to publish again.")
 
 
 if __name__ == "__main__":

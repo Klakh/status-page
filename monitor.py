@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Sonde de disponibilité pour status.keeklah.fr.
+"""Availability probe for status.keeklah.fr.
 
-Conçu pour tourner sur un Raspberry Pi 1 B rev2 (ARM11 monocoeur, 512 Mo) en
-service systemd persistant (voir monitor.service) : le processus reste vivant
-et sonde à intervalle court, ce qui donne un downtime précis à quelques
-secondes plutôt qu'à la minute. `--once` fait un passage unique et quitte,
-pour un lancement manuel ou un test.
-Le script ne produit que des *données* (data.json) : la présentation vit
-entièrement dans index.html, qui recharge data.json tout seul côté navigateur.
+Built to run on a Raspberry Pi 1 B rev2 (single-core ARM11, 512 MB) as a
+persistent systemd service (see monitor.service): the process stays alive and
+probes at a short interval, which dates a downtime to within a few seconds
+instead of a minute. `--once` makes a single pass and exits, for a manual run
+or a test.
+The script only produces *data* (data.json): the presentation lives entirely
+in index.html, which reloads data.json by itself in the browser.
 """
 
 import json
@@ -29,92 +29,89 @@ STATE_FILE = os.path.join(BASE_DIR, "state.json")
 DATA_FILE = os.path.join(BASE_DIR, "data.json")
 NOTIFY_FILE = os.path.join(BASE_DIR, "notify.json")
 
-# Intervalle entre deux sondes. C'est la durée qu'un check en échec représente
-# dans le calcul du downtime (publiée telle quelle dans data.json comme
-# "interval", relue par index.html), et donc la borne basse de la précision
-# affichée. Sonder est bon marché sur un LAN — le coût est réseau, pas CPU, et
-# un Pi 1 B monocoeur passe le plus clair de son temps à dormir entre deux
-# checks — donc rien n'empêche de descendre bas ; la vraie limite est plus bas
-# (STATE_FLUSH_EVERY), pas ici.
+# Interval between two probes. It is the duration a failed check stands for in
+# the downtime computation (published as is in data.json as "interval", read
+# back by index.html), hence the lower bound of the displayed precision.
+# Probing is cheap on a LAN — the cost is network, not CPU, and a single-core
+# Pi 1 B spends most of its time asleep between two checks — so nothing stops
+# going low; the real limit is further down (STATE_FLUSH_EVERY), not here.
 POLL_INTERVAL = 1
 
-# Écrire sur la carte SD est le seul coût réel de sonder souvent : à chaque
-# écriture, write_json_atomic fait un fsync. Sonder toutes les POLL_INTERVAL
-# secondes mais écrire data.json/state.json à cette même cadence userait la
-# carte SD bien plus vite qu'avant. On garde donc le même budget d'écriture
-# qu'à l'époque du cron à la minute : une sauvegarde locale au plus toutes les
-# STATE_FLUSH_EVERY secondes, sauf changement d'état, où elle reste immédiate
-# — c'est justement l'instant qui doit être précis, pas l'attente entre deux.
+# Writing to the SD card is the only real cost of probing often: each write
+# goes through write_json_atomic's fsync. Probing every POLL_INTERVAL seconds
+# but writing data.json/state.json at that same pace would wear the SD card
+# much faster than before. The write budget therefore stays what it was with
+# the once-a-minute cron: at most one local save every STATE_FLUSH_EVERY
+# seconds, except on a status change, where it stays immediate — that is the
+# instant that must be precise, not the wait between two.
 STATE_FLUSH_EVERY = 60
 
-# Sonder est bon marché, publier ne l'est pas : un commit + push TLS coûte bien
-# plus cher au Pi que quelques requêtes HTTP. On sonde donc à chaque passage
-# mais on ne pousse qu'à cet intervalle — sauf changement d'état, publié
-# immédiatement pour que l'alerte ne soit jamais retardée.
+# Probing is cheap, publishing is not: a commit + TLS push costs the Pi much
+# more than a few HTTP requests. Every pass probes, but pushes only happen at
+# this interval — except on a status change, published at once so that the
+# alert is never delayed.
 PUBLISH_EVERY = 300
 
-# Résolutions de l'historique : (pas en secondes, durée de rétention).
-# Chaque check alimente les trois compteurs, donc pas de ré-agrégation à faire.
+# History resolutions: (step in seconds, retention).
+# Each check feeds all three counters, so there is nothing to re-aggregate.
 RESOLUTIONS = (
-    (300, 48 * 3600),        # 5 min sur 48 h   -> 576 points
-    (3600, 30 * 86400),      # 1 h   sur 30 j   -> 720 points
-    (86400, 180 * 86400),    # 1 j   sur 180 j  -> 180 points
+    (300, 48 * 3600),        # 5 min over 48 h  -> 576 points
+    (3600, 30 * 86400),      # 1 h   over 30 d  -> 720 points
+    (86400, 180 * 86400),    # 1 d   over 180 d -> 180 points
 )
 
-# Journal des transitions d'état. Les compteurs d'historique ne disent que ce
-# qui a été *mesuré* ; ce journal dit ce qui était *vrai*. Entre deux
-# transitions l'état est connu même sans mesure, ce qui permet à la page de
-# colorer les périodes où le Pi n'a pas sondé (coupure, redémarrage) au lieu
-# de les laisser en trou gris.
+# Log of status transitions. The history counters only tell what was
+# *measured*; this log tells what was *true*. Between two transitions the
+# status is known even without a measurement, which lets the page colour the
+# periods when the Pi did not probe (power cut, reboot) instead of leaving a
+# grey hole.
 TRANSITIONS_KEEP = 180 * 86400
 
 DEFAULT_TIMEOUT = 5
 MAX_WORKERS = 8
 
-# Un check est une tentative unique : un pic de latence, un paquet perdu ou un
-# redémarrage de service de deux secondes suffit à le faire échouer alors que
-# le service est en réalité disponible. Sans marge, ce bruit se traduit
-# mécaniquement par de fausses alertes. On exige donc que l'échec tienne au
-# moins CONFIRM_DOWN_AFTER secondes avant de déclarer DOWN — une durée fixe,
-# indépendante de POLL_INTERVAL, pour que descendre l'intervalle de sonde
-# gagne en précision sans rogner cette marge de tolérance. La remontée en UP
-# reste immédiate : un service qui répond est disponible, il n'y a rien à
-# confirmer.
+# A check is a single attempt: a latency spike, a lost packet or a two-second
+# service restart is enough to fail it while the service is actually
+# available. Without a margin, that noise turns straight into false alerts.
+# A failure must therefore last at least CONFIRM_DOWN_AFTER seconds before
+# DOWN is declared — a fixed duration, independent of POLL_INTERVAL, so that
+# lowering the probe interval gains precision without eating into this
+# tolerance. Going back UP stays immediate: a service that answers is
+# available, there is nothing to confirm.
 CONFIRM_DOWN_AFTER = 3
 
-# Journal borné : les lignes ne s'écrivent qu'aux passages qui comptent (sonde
-# en échec, publication, changement d'état — voir STATE_FLUSH_EVERY), pas à
-# chaque sonde, donc le volume reste du même ordre qu'à l'époque du cron à la
-# minute. Trois fichiers de 256 Ko plafonnent l'ensemble à 768 Ko.
+# Bounded log: lines are only written on the passes that matter (failed
+# probe, publication, status change — see STATE_FLUSH_EVERY), not on every
+# probe, so the volume stays of the same order as with the once-a-minute cron.
+# Three 256 KB files cap the whole at 768 KB.
 LOG_FILE = os.path.join(BASE_DIR, "status.log")
 LOG_MAX_BYTES = 256 * 1024
 LOG_BACKUPS = 2
 
-# Une alerte non délivrée (Discord injoignable, Pi hors ligne) est retentée à
-# chaque passage, puis abandonnée passé ce délai : prévenir d'une panne réglée
-# depuis longtemps n'apprend plus rien et noierait le salon au retour du réseau.
+# An undelivered alert (Discord unreachable, Pi offline) is retried on every
+# pass, then dropped past this age: announcing an outage fixed long ago tells
+# nothing any more and would flood the channel when the network comes back.
 ALERT_TIMEOUT = 5
 ALERT_MAX_AGE = 6 * 3600
 
 AUTO_MSG = "Mise à jour automatique des données"
-# Au-delà de cette ancienneté, on ouvre un vrai commit au lieu d'amender,
-# ce qui laisse une trace quotidienne dans l'historique Git.
+# Past this age, a real commit is opened instead of amending, which leaves a
+# daily trace in the Git history.
 NEW_COMMIT_EVERY = 86400
 SQUASH_AUTO_COMMITS = True
 
 def _build_logger():
-    """Journalise vers le fichier tournant et vers la sortie standard : le
-    fichier pour le cron, la sortie pour les lancements à la main. Si le
-    fichier n'est pas ouvrable, on continue sans lui — un problème de journal
-    ne doit jamais empêcher la supervision de tourner."""
+    """Logs to the rotating file and to standard output: the file for the
+    service, the output for manual runs. If the file cannot be opened, carry
+    on without it — a logging problem must never stop the monitoring."""
     logger = logging.getLogger("status-page")
     logger.setLevel(logging.INFO)
     if logger.handlers:
         return logger
 
-    # Console en interactif seulement. Sous cron, stderr est redirigé vers le
-    # même fichier que le handler tournant : sans ce garde-fou chaque message y
-    # serait écrit deux fois, une fois nu et une fois horodaté.
+    # Console in interactive runs only. Under cron, stderr is redirected to
+    # the same file as the rotating handler: without this guard every message
+    # would be written there twice, once bare and once timestamped.
     if sys.stderr.isatty():
         console = logging.StreamHandler()
         console.setFormatter(logging.Formatter("%(message)s"))
@@ -128,7 +125,7 @@ def _build_logger():
                                                 "%Y-%m-%d %H:%M:%S"))
         logger.addHandler(rotating)
     except OSError as e:
-        logger.warning("journal fichier désactivé : %s", e)
+        logger.warning("file log disabled: %s", e)
     return logger
 
 
@@ -163,41 +160,41 @@ def load_config():
             with open(CONFIG_EXAMPLE_FILE, "w", encoding="utf-8") as f:
                 json.dump(EXAMPLE_CONFIG, f, indent=2, ensure_ascii=False)
         except OSError as e:
-            log("Impossible de créer config.json.example : %s" % e)
+            log("Cannot create config.json.example: %s" % e)
 
-    # Jamais de repli silencieux sur EXAMPLE_CONFIG : sur un clone neuf, où
-    # config.json manque par construction, cela reviendrait à sonder un service
-    # fictif et à publier ce néant par-dessus l'historique réel. Mieux vaut ne
-    # rien faire que publier faux.
+    # Never fall back silently on EXAMPLE_CONFIG: on a fresh clone, where
+    # config.json is missing by construction, that would probe a fictitious
+    # service and publish that void over the real history. Better do nothing
+    # than publish something false.
     if not os.path.exists(CONFIG_FILE):
         raise SystemExit(
-            "config.json absent : rien n'est sondé ni publié.\n"
-            "Copier config.json.example vers config.json et le renseigner."
+            "config.json missing: nothing is probed or published.\n"
+            "Copy config.json.example to config.json and fill it in."
         )
 
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             config = json.load(f)
     except (OSError, ValueError) as e:
-        raise SystemExit("config.json illisible (%s) : rien n'est publié." % e)
+        raise SystemExit("config.json unreadable (%s): nothing is published." % e)
 
     if not isinstance(config, list) or not config:
-        raise SystemExit("config.json ne décrit aucun service : rien n'est publié.")
+        raise SystemExit("config.json describes no service: nothing is published.")
 
     missing = [i for i, s in enumerate(config) if not isinstance(s, dict) or not s.get("id")]
     if missing:
-        raise SystemExit("config.json : entrées sans 'id' aux positions %s." % missing)
+        raise SystemExit("config.json: entries without 'id' at positions %s." % missing)
 
     return config
 
 
 def state_from_data(data):
-    """Reconstruit l'état durable à partir de data.json.
+    """Rebuilds the durable state from data.json.
 
-    data.json est un sur-ensemble de ce que state.json doit retenir. Si l'état
-    disparaît — carte SD, clone neuf, `git clean -x` — repartir de la dernière
-    publication vaut mieux que repartir de zéro : elle est versionnée, donc
-    récupérable même quand le disque du Pi ne l'est plus.
+    data.json is a superset of what state.json must keep. If the state is
+    lost — SD card, fresh clone, `git clean -x` — starting again from the last
+    publication beats starting from zero: it is versioned, hence recoverable
+    even when the Pi's disk is not.
     """
     now = data.get("t", 0)
 
@@ -217,8 +214,8 @@ def state_from_data(data):
             for ser in series
         }
 
-    # Seules les séries terminées sont mémorisées : une série en cours est
-    # recalculée à chaque passage depuis l'état des services.
+    # Only finished streaks are kept: a running streak is recomputed on every
+    # pass from the services' status.
     rec = data.get("record") or {}
     finished = {}
     if rec.get("name") and rec.get("start") and rec.get("end"):
@@ -244,7 +241,7 @@ def load_state():
             with open(STATE_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (OSError, ValueError):
-            log("state.json illisible.")
+            log("state.json unreadable.")
 
     if os.path.exists(DATA_FILE):
         try:
@@ -252,30 +249,30 @@ def load_state():
                 data = json.load(f)
             state = state_from_data(data)
             points = sum(len(b) for h in state["history"].values() for b in h.values())
-            log("État reconstruit depuis data.json : %d service(s), %d points d'historique."
+            log("State rebuilt from data.json: %d service(s), %d history points."
                   % (len(state["services"]), points))
             return state
         except (OSError, ValueError, KeyError, TypeError) as e:
-            log("data.json inexploitable pour la reprise : %s" % e)
+            log("data.json unusable for the recovery: %s" % e)
 
-    log("Aucun état exploitable, démarrage à zéro.")
+    log("No usable state, starting from zero.")
     return {}
 
 
-# ------------------------------------------------------------------ alertes
+# ------------------------------------------------------------------- alerts
 
 def load_webhook():
-    """URL du webhook Discord, lue dans notify.json. Fichier séparé de
-    config.json pour ne pas en changer le format, et ignoré par Git : quiconque
-    connaît l'URL peut poster dans le salon, elle ne doit jamais être publiée.
-    Absent ou illisible, les alertes sont simplement désactivées."""
+    """The Discord webhook URL, read from notify.json. A file apart from
+    config.json so as not to change its format, and ignored by Git: anyone who
+    knows the URL can post in the channel, it must never be published.
+    Missing or unreadable, alerts are simply disabled."""
     try:
         with open(NOTIFY_FILE, "r", encoding="utf-8") as f:
             return json.load(f).get("discord_webhook") or None
     except FileNotFoundError:
         return None
     except (OSError, ValueError, AttributeError) as e:
-        log("notify.json illisible, alertes désactivées : %s" % e)
+        log("notify.json unreadable, alerts disabled: %s" % e)
         return None
 
 
@@ -294,8 +291,8 @@ def format_duration(secs):
 
 
 def alert_line(alert):
-    # <t:…> est rendu par Discord dans le fuseau du lecteur : rien à convertir
-    # sur le Pi, et l'heure reste juste même lue avec retard.
+    # Discord renders <t:…> in the reader's time zone: nothing to convert on
+    # the Pi, and the time stays right even when read late.
     at = "<t:%d:t>" % alert["ts"]
     if alert["status"] == "DOWN":
         return "\U0001F534 **%s** est hors ligne (%s)" % (alert["name"], at)
@@ -304,10 +301,10 @@ def alert_line(alert):
 
 
 def send_alerts(webhook, alerts):
-    """Un seul message pour tout le lot : Discord limite le débit par webhook.
-    Retourne True si le message est accepté."""
+    """One message for the whole batch: Discord rate-limits each webhook.
+    Returns True if the message is accepted."""
     body = json.dumps({"content": "\n".join(alert_line(a) for a in alerts)[:2000]})
-    # Sans User-Agent explicite, Cloudflare rejette celui de urllib (erreur 1010).
+    # Without an explicit User-Agent, Cloudflare rejects urllib's (error 1010).
     req = urllib.request.Request(
         webhook, data=body.encode("utf-8"), method="POST",
         headers={"Content-Type": "application/json", "User-Agent": "StatusMonitor/2.0"})
@@ -315,15 +312,15 @@ def send_alerts(webhook, alerts):
         with urllib.request.urlopen(req, timeout=ALERT_TIMEOUT):
             return True
     except Exception as e:
-        log("Alerte Discord non envoyée, nouvel essai au prochain passage : %s" % e)
+        log("Discord alert not sent, retrying on the next pass: %s" % e)
         return False
 
 
-# ------------------------------------------------------------------ checks
+# ------------------------------------------------------------------- checks
 
 def check_service(service):
-    """Retourne (id, is_up). Une réponse 2xx ou 3xx compte comme disponible,
-    sauf si la config impose un code précis via "expect_status"."""
+    """Returns (id, is_up). A 2xx or 3xx answer counts as available, unless
+    the config demands an exact code through "expect_status"."""
     url = service.get("check_url") or service.get("url") or service.get("public_url")
     if not url:
         return service["id"], False
@@ -348,18 +345,18 @@ def run_checks(services):
     if len(services) == 1:
         sid, up = check_service(services[0])
         return {sid: up}
-    # Les checks sont bloqués sur le réseau, pas sur le CPU : des threads
-    # suffisent à masquer la latence même sur un coeur unique.
+    # Checks wait on the network, not on the CPU: threads are enough to hide
+    # the latency even on a single core.
     workers = min(MAX_WORKERS, len(services))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return dict(pool.map(check_service, services))
 
 
-# --------------------------------------------------------------- historique
+# ------------------------------------------------------------------ history
 
 def migrate_history(history):
-    """Convertit l'ancien format {sid: {ts: [up, total]}} vers le format
-    multi-résolution {sid: {step: {ts: [up, total]}}}."""
+    """Converts the old format {sid: {ts: [up, total]}} to the multi-resolution
+    format {sid: {step: {ts: [up, total]}}}."""
     migrated = {}
     for sid, buckets in history.items():
         if not isinstance(buckets, dict):
@@ -395,8 +392,8 @@ def record_check(history, sid, is_up, now_ts):
 
 
 def prune_history(history, now_ts):
-    """Supprime les points hors rétention. Ne réécrit un dict que si quelque
-    chose sort réellement, pour éviter de tout recopier à chaque exécution."""
+    """Drops the points past retention. Only rewrites a dict when something
+    actually goes, to avoid copying everything on every run."""
     for buckets in history.values():
         for step, keep in RESOLUTIONS:
             key = str(step)
@@ -410,7 +407,7 @@ def prune_history(history, now_ts):
 
 
 def history_for_output(buckets):
-    """Sérialise en séries triées : [{step, keep, points: [[ts, up, total], ...]}]."""
+    """Serialises as sorted series: [{step, keep, points: [[ts, up, total], ...]}]."""
     out = []
     for step, keep in RESOLUTIONS:
         slots = buckets.get(str(step), {})
@@ -420,11 +417,11 @@ def history_for_output(buckets):
     return out
 
 
-# ------------------------------------------------------------- transitions
+# -------------------------------------------------------------- transitions
 
 def load_transitions(raw):
-    """Normalise le journal lu dans state.json : {sid: [[ts, "UP"|"DOWN"], ...]},
-    trié, en écartant les entrées illisibles plutôt que de planter."""
+    """Normalises the log read from state.json: {sid: [[ts, "UP"|"DOWN"], ...]},
+    sorted, dropping unreadable entries rather than crashing."""
     clean = {}
     if not isinstance(raw, dict):
         return clean
@@ -447,8 +444,8 @@ def load_transitions(raw):
 
 
 def prune_transitions(transitions, now_ts):
-    """Purge le journal en conservant la dernière transition antérieure à la
-    fenêtre : c'est elle qui porte l'état au début de la période affichée."""
+    """Purges the log while keeping the last transition before the window: it
+    carries the status at the start of the displayed period."""
     cutoff = now_ts - TRANSITIONS_KEEP
     for entries in transitions.values():
         entries.sort(key=lambda e: e[0])
@@ -462,14 +459,14 @@ def prune_transitions(transitions, now_ts):
             del entries[:keep_from]
 
 
-# ------------------------------------------------------------------ record
+# ------------------------------------------------------------------- record
 
 def compute_record(previous, services_state, now_ts):
-    """Plus longue période d'uptime jamais observée, terminée ou en cours.
+    """Longest uptime streak ever observed, finished or running.
 
-    `previous` ne contient que des séries *terminées* : les séries en cours
-    sont recalculées à chaque passage depuis l'état des services, sinon un
-    service actuellement up peut se faire voler le record par un autre.
+    `previous` only holds *finished* streaks: running ones are recomputed on
+    every pass from the services' status, otherwise a service currently up
+    could have its record stolen by another.
     """
     best = dict(previous) if previous else {}
     best_dur = best.get("duration", 0)
@@ -517,17 +514,17 @@ def has_staged_changes():
 
 
 def realign_on_remote(message):
-    """Rejeu de la publication à partir du dépôt distant.
+    """Replays the publication on top of the remote repository.
 
-    Le Pi n'est propriétaire que de data.json ; le code vient toujours du dépôt.
-    On repart donc de la tête distante et on repose la donnée par-dessus :
-    impossible de conflitter, impossible d'annuler un changement de code poussé
-    ailleurs, et le Pi ne peut pas rester coincé en échec de push.
+    The Pi only owns data.json; the code always comes from the repository.
+    So start again from the remote head and lay the data on top: no conflict
+    possible, no way to undo a code change pushed elsewhere, and the Pi cannot
+    stay stuck failing to push.
 
-    Aucune analyse d'historique ici : après une amende, l'ancêtre commun peut
-    avoir disparu et toute comparaison échouerait. On étiquette simplement le
-    HEAD local avant de le défaire s'il portait quelque chose d'inédit, de
-    sorte que rien ne soit jamais perdu sans trace.
+    No history analysis here: after an amend, the common ancestor may be gone
+    and any comparison would fail. The local HEAD is simply tagged before
+    being undone if it carried anything new, so that nothing is ever lost
+    without a trace.
     """
     git("fetch", "origin", "main")
 
@@ -536,7 +533,7 @@ def realign_on_remote(message):
     if not already_pushed:
         tag = "avant-realignement-%d" % int(time.time())
         git("tag", "-f", tag, "HEAD", check=False)
-        log("HEAD local conservé sous l'étiquette %s." % tag)
+        log("Local HEAD kept under the tag %s." % tag)
 
     with open(DATA_FILE, "rb") as f:
         payload = f.read()
@@ -548,7 +545,7 @@ def realign_on_remote(message):
     if has_staged_changes():
         git("commit", "-m", message)
     git("push", "origin", "main")
-    log("Réaligné sur le dépôt distant, données republiées.")
+    log("Realigned on the remote repository, data published again.")
     return True
 
 
@@ -569,33 +566,32 @@ def publish(message, amend):
     if git(*push_args, check=False).returncode == 0:
         return True
 
-    # Push rejeté : le dépôt a bougé ailleurs. Vaut pour l'amende comme pour le
-    # commit normal, qui sinon échouait à chaque passage sans jamais se rattraper.
-    log("Push rejeté, tentative de réalignement.")
+    # Push rejected: the repository moved elsewhere. Holds for the amend as for
+    # the plain commit, which otherwise failed on every pass without recovering.
+    log("Push rejected, trying to realign.")
     return realign_on_remote(message)
 
 
 def compact_repo():
-    """Une amende par publication laisse l'ancien commit dans le reflog, donc
-    joignable, donc jamais élagué par gc : environ 3,5 Mo par jour sur la carte
-    SD. On purge à chaque nouveau commit quotidien."""
+    """An amend per publication leaves the old commit in the reflog, hence
+    reachable, hence never pruned by gc: about 3.5 MB a day on the SD card.
+    Purged at each new daily commit."""
     try:
         git("reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
         git("gc", "--prune=now", "--quiet", timeout=600)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        log("Compactage du dépôt ignoré : %s" % e)
+        log("Repository compaction skipped: %s" % e)
 
 
 # -------------------------------------------------------------------- main
 
 def run_tick(services_config, state, now_ts):
-    """Une sonde. Met à jour `state` (services/transitions/history/
-    record_finished/pending_alerts) en place et renvoie (services_output,
-    status_changed, transitioned) pour ce passage.
+    """One probe. Updates `state` (services/transitions/history/
+    record_finished/pending_alerts) in place and returns (services_output,
+    status_changed, transitioned) for this pass.
 
-    Logique inchangée depuis la version cron — seule la source de `state` a
-    changé : elle vient de la mémoire du processus, pas d'une relecture disque
-    à chaque passage.
+    Same logic as the cron version — only the source of `state` changed: it
+    comes from the process memory, not from a disk read on every pass.
     """
     results = run_checks(services_config)
 
@@ -617,13 +613,13 @@ def run_tick(services_config, state, now_ts):
         prev_status = prev.get("status")
         last_change = prev.get("last_change", now_ts)
 
-        # Débruitage : un échec isolé laisse l'état inchangé (sursis), seul un
-        # échec qui persiste CONFIRM_DOWN_AFTER secondes fait basculer en DOWN.
-        # first_fail_ts marque le début de la série d'échecs en cours, pas un
-        # compte de checks — la marge de tolérance ne dépend donc pas de
-        # POLL_INTERVAL. Faute d'état antérieur — tout premier passage — il n'y
-        # a rien à maintenir : la mesure fait foi, sinon un service déjà en
-        # panne serait annoncé disponible.
+        # Denoising: an isolated failure leaves the status unchanged (grace),
+        # only a failure lasting CONFIRM_DOWN_AFTER seconds switches to DOWN.
+        # first_fail_ts marks the start of the current failure streak, not a
+        # count of checks — so the tolerance does not depend on POLL_INTERVAL.
+        # Without a previous status — very first pass — there is nothing to
+        # keep: the measurement rules, otherwise a service already down would
+        # be announced available.
         if is_up:
             first_fail_ts = None
             status = "UP"
@@ -634,12 +630,12 @@ def run_tick(services_config, state, now_ts):
                 status = "DOWN"
             else:
                 status = prev_status
-                log("%s : échec depuis %ds, confirmation DOWN dans %ds."
+                log("%s: failing for %ds, DOWN confirmed in %ds."
                     % (s["name"], failing_for, CONFIRM_DOWN_AFTER - failing_for))
 
-        # Amorçage du journal : on repart de last_change, ce qui préserve
-        # l'ancienneté déjà connue du service (y compris si elle a été
-        # ajustée à la main dans state.json) au lieu de la perdre.
+        # Seeding the log: start from last_change, which keeps the service's
+        # known age (even when adjusted by hand in state.json) instead of
+        # losing it.
         journal = transitions.setdefault(sid, [])
         if not journal:
             journal.append([last_change, prev_status or status])
@@ -652,7 +648,7 @@ def run_tick(services_config, state, now_ts):
                 "outage": now_ts - last_change if status == "UP" else 0,
             })
             if prev_status == "UP":
-                # Série terminée : elle devient candidate au record définitif.
+                # Finished streak: it becomes a candidate for the final record.
                 duration = now_ts - last_change
                 if duration > finished_record.get("duration", 0):
                     finished_record = {
@@ -671,10 +667,10 @@ def run_tick(services_config, state, now_ts):
             "last_check": now_ts,
             "first_fail_ts": first_fail_ts,
         }
-        # Rien d'autre que l'identifiant, le nom codé et l'état : une page de
-        # statut publique n'a pas à révéler où vivent les services qu'elle
-        # surveille. public_url et icon restent lisibles dans config.json, qui
-        # ne quitte jamais la machine.
+        # Nothing but the id, the coded name and the status: a public status
+        # page has no business revealing where the services it watches live.
+        # public_url and icon stay readable in config.json, which never leaves
+        # the machine.
         services_output.append({
             "id": sid,
             "name": s["name"],
@@ -682,9 +678,9 @@ def run_tick(services_config, state, now_ts):
             "since": last_change,
         })
 
-        # La mesure brute, pas l'état débruité : les compteurs d'historique
-        # disent ce qui a été *mesuré*, le journal des transitions ce qui était
-        # *vrai*. Un sursis reste donc visible comme une micro-baisse d'uptime.
+        # The raw measurement, not the denoised status: the history counters
+        # tell what was *measured*, the transition log what was *true*. A
+        # grace period thus stays visible as a slight dip in uptime.
         record_check(history, sid, is_up, now_ts)
 
     state["services"] = services_state
@@ -705,14 +701,13 @@ def main():
         "pending_alerts": old_state.get("pending_alerts", []),
     }
     last_publish = old_state.get("last_publish", 0)
-    # Absent d'un state.json d'avant cette version : on part du principe que
-    # tout a déjà été écrit au moins une fois plutôt que de forcer un flush
-    # immédiat qui n'apprendrait rien.
+    # Missing from a state.json older than this version: assume everything
+    # was written at least once rather than forcing an immediate flush that
+    # would tell nothing.
     last_flush = old_state.get("last_flush", last_publish)
 
-    # SIGTERM (arrêt systemd) et SIGINT (Ctrl-C manuel) terminent la boucle
-    # proprement après le passage en cours au lieu de couper une écriture
-    # disque en plein milieu.
+    # SIGTERM (systemd stop) and SIGINT (manual Ctrl-C) end the loop cleanly
+    # after the current pass instead of cutting a disk write in the middle.
     stop_requested = False
 
     def request_stop(signum, frame):
@@ -729,11 +724,10 @@ def main():
         services_output, status_changed, transitioned = run_tick(services_config, state, now_ts)
 
         due_publish = bool(status_changed) or now_ts - last_publish >= PUBLISH_EVERY
-        # Un changement d'état ou une publication imminente doivent atteindre
-        # le disque immédiatement (git a besoin de data.json à jour) ; sinon,
-        # on respecte le budget d'écriture de STATE_FLUSH_EVERY. `once`/l'arrêt
-        # forcent aussi un flush final, pour ne jamais quitter sur une sonde
-        # non enregistrée.
+        # A status change or an imminent publication must reach the disk at
+        # once (git needs an up-to-date data.json); otherwise the
+        # STATE_FLUSH_EVERY write budget holds. `once` and stopping also force a
+        # final flush, never to exit on an unsaved probe.
         due_flush = (
             transitioned or due_publish or once or stop_requested
             or now_ts - last_flush >= STATE_FLUSH_EVERY
@@ -757,8 +751,8 @@ def main():
             })
             last_flush = now_ts
 
-        # Avant Git : un push peut prendre des minutes sur le Pi, l'alerte non.
-        # Indépendant du flush disque : une alerte ne doit jamais attendre.
+        # Before Git: a push can take minutes on the Pi, the alert cannot.
+        # Independent of the disk flush: an alert must never wait.
         state["pending_alerts"] = [
             a for a in state["pending_alerts"] if now_ts - a["ts"] < ALERT_MAX_AGE
         ]
@@ -766,7 +760,7 @@ def main():
             webhook = load_webhook()
             if not webhook or send_alerts(webhook, state["pending_alerts"]):
                 if webhook:
-                    log("Alerte Discord envoyée (%d changement(s))." % len(state["pending_alerts"]))
+                    log("Discord alert sent (%d change(s))." % len(state["pending_alerts"]))
                 state["pending_alerts"] = []
 
         published = False
@@ -784,21 +778,21 @@ def main():
             try:
                 published = publish(message, amend)
                 if published:
-                    log("publié : %s%s" % (message, " (amend)" if amend else ""))
+                    log("published: %s%s" % (message, " (amend)" if amend else ""))
                     if not amend:
                         compact_repo()
             except subprocess.TimeoutExpired:
-                log("Git : délai dépassé.")
+                log("Git: timed out.")
             except subprocess.CalledProcessError as e:
-                log("Git a échoué : %s" % (e.stderr or "").strip())
+                log("Git failed: %s" % (e.stderr or "").strip())
         elif due_flush:
-            # Un saut silencieux se confond avec une panne : on dit toujours
-            # pourquoi, mais seulement au rythme du flush, pas à chaque sonde.
-            log("sondé, pas publié : prochaine publication dans %ds."
+            # A silent skip looks like an outage: always say why, but only at
+            # the flush pace, not on every probe.
+            log("probed, not published: next publication in %ds."
                 % (PUBLISH_EVERY - (now_ts - last_publish)))
 
-        # État écrit en dernier : si la publication échoue, last_publish n'avance
-        # pas et le prochain flush dû retentera au lieu d'attendre l'intervalle.
+        # State written last: if the publication fails, last_publish does not
+        # move and the next due flush retries instead of waiting the interval.
         if due_flush:
             if published:
                 last_publish = now_ts
