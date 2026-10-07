@@ -10,15 +10,20 @@ The script only produces *data* (data.json): the presentation lives entirely
 in index.html, which reloads data.json by itself in the browser.
 """
 
+import errno
 import json
 import logging
 import logging.handlers
 import os
 import signal
+import socket
+import ssl
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -28,6 +33,7 @@ CONFIG_EXAMPLE_FILE = os.path.join(BASE_DIR, "config.json.example")
 STATE_FILE = os.path.join(BASE_DIR, "state.json")
 DATA_FILE = os.path.join(BASE_DIR, "data.json")
 NOTIFY_FILE = os.path.join(BASE_DIR, "notify.json")
+LOKHIVE_FILE = os.path.join(BASE_DIR, "lokhive.json")
 
 # Interval between two probes. It is the duration a failed check stands for in
 # the downtime computation (published as is in data.json as "interval", read
@@ -70,6 +76,18 @@ TRANSITIONS_KEEP = 180 * 86400
 DEFAULT_TIMEOUT = 5
 MAX_WORKERS = 8
 
+# Failure diagnosis, run once when a DOWN is confirmed and never while all is
+# up. Two public resolvers reached over TCP 443: when neither answers, the
+# Pi's own Internet access is down, and that is the cause of every failure.
+INTERNET_PROBES = (("1.1.1.1", 443), ("9.9.9.9", 443))
+DIAG_TIMEOUT = 3
+
+# A silence longer than this between the last saved probe and a start is
+# recorded as a gap: the probe itself was not running.
+GAP_MIN = 120
+
+LOKHIVE_TIMEOUT = 10
+
 # A check is a single attempt: a latency spike, a lost packet or a two-second
 # service restart is enough to fail it while the service is actually
 # available. Without a margin, that noise turns straight into false alerts.
@@ -94,7 +112,7 @@ LOG_BACKUPS = 2
 ALERT_TIMEOUT = 5
 ALERT_MAX_AGE = 6 * 3600
 
-AUTO_MSG = "Mise à jour automatique des données"
+AUTO_MSG = "Automatic data update"
 # Past this age, a real commit is opened instead of amending, which leaves a
 # daily trace in the Git history.
 NEW_COMMIT_EVERY = 86400
@@ -145,13 +163,21 @@ EXAMPLE_CONFIG = [
 
 # --------------------------------------------------------------------- I/O
 
-def write_json_atomic(path, payload):
+def encode_json(payload):
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def write_bytes_atomic(path, body):
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
+    with open(tmp, "wb") as f:
+        f.write(body)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
+
+
+def write_json_atomic(path, payload):
+    write_bytes_atomic(path, encode_json(payload))
 
 
 def load_config():
@@ -229,6 +255,7 @@ def state_from_data(data):
     return {
         "services": services,
         "transitions": data.get("transitions", {}),
+        "gaps": data.get("gaps", []),
         "history": history,
         "record_finished": finished,
         "last_publish": now,
@@ -290,12 +317,38 @@ def format_duration(secs):
     return "%d j %d h" % (days, hours)
 
 
+# Read by the friends on Discord: in French, like the page.
+CAUSE_TEXT = {
+    "internet": "Internet coupé chez l'hébergeur",
+    "dns": "nom de domaine introuvable",
+    "unreachable": "serveur injoignable",
+    "refused": "connexion refusée par le serveur",
+    "reset": "connexion coupée par le serveur",
+    "tls_cert": "certificat refusé",
+    "tls": "erreur de chiffrement (TLS)",
+    "timeout": "aucune réponse à temps",
+}
+
+
+def cause_text(cause):
+    if not cause:
+        return None
+    if cause.startswith("http_"):
+        code = cause[5:]
+        if code in ("502", "503", "504"):
+            return "l'appli ne répond pas (HTTP %s)" % code
+        return "réponse inattendue (HTTP %s)" % code
+    return CAUSE_TEXT.get(cause, "cause inconnue")
+
+
 def alert_line(alert):
     # Discord renders <t:…> in the reader's time zone: nothing to convert on
     # the Pi, and the time stays right even when read late.
     at = "<t:%d:t>" % alert["ts"]
     if alert["status"] == "DOWN":
-        return "\U0001F534 **%s** est hors ligne (%s)" % (alert["name"], at)
+        why = cause_text(alert.get("cause"))
+        return "\U0001F534 **%s** est hors ligne (%s)%s" % (
+            alert["name"], at, " : " + why if why else "")
     return "\U0001F7E2 **%s** est de nouveau en ligne (%s), après %s d'interruption" % (
         alert["name"], at, format_duration(alert["outage"]))
 
@@ -318,12 +371,39 @@ def send_alerts(webhook, alerts):
 
 # ------------------------------------------------------------------- checks
 
+def service_url(service):
+    return service.get("check_url") or service.get("url") or service.get("public_url")
+
+
+def failure_cause(exc):
+    """A short code for why a probe failed, from what urllib raised: the
+    socket error comes wrapped in URLError.reason, a read timeout comes bare."""
+    reason = getattr(exc, "reason", exc)
+    if isinstance(reason, socket.gaierror):
+        return "dns"
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return "tls_cert"
+    if isinstance(reason, ssl.SSLError):
+        return "tls"
+    if isinstance(reason, ConnectionRefusedError):
+        return "refused"
+    if isinstance(reason, ConnectionResetError):
+        return "reset"
+    if isinstance(reason, (socket.timeout, TimeoutError)):
+        return "timeout"
+    if isinstance(reason, OSError) and reason.errno in (
+            errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EHOSTDOWN):
+        return "unreachable"
+    return "error"
+
+
 def check_service(service):
-    """Returns (id, is_up). A 2xx or 3xx answer counts as available, unless
-    the config demands an exact code through "expect_status"."""
-    url = service.get("check_url") or service.get("url") or service.get("public_url")
+    """Returns (id, (is_up, cause)), cause None when up. A 2xx or 3xx answer
+    counts as available, unless the config demands an exact code through
+    "expect_status"."""
+    url = service_url(service)
     if not url:
-        return service["id"], False
+        return service["id"], (False, "error")
 
     timeout = service.get("timeout", DEFAULT_TIMEOUT)
     expected = service.get("expect_status")
@@ -333,23 +413,73 @@ def check_service(service):
             status = response.status
     except urllib.error.HTTPError as e:
         status = e.code
-    except Exception:
-        return service["id"], False
+    except Exception as e:
+        return service["id"], (False, failure_cause(e))
 
-    if expected is not None:
-        return service["id"], status == expected
-    return service["id"], 200 <= status < 400
+    up = status == expected if expected is not None else 200 <= status < 400
+    return service["id"], (up, None if up else "http_%d" % status)
 
 
 def run_checks(services):
     if len(services) == 1:
-        sid, up = check_service(services[0])
-        return {sid: up}
+        sid, result = check_service(services[0])
+        return {sid: result}
     # Checks wait on the network, not on the CPU: threads are enough to hide
     # the latency even on a single core.
     workers = min(MAX_WORKERS, len(services))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return dict(pool.map(check_service, services))
+
+
+# --------------------------------------------------------------- diagnosis
+
+def internet_reachable():
+    for host, port in INTERNET_PROBES:
+        try:
+            socket.create_connection((host, port), timeout=DIAG_TIMEOUT).close()
+            return True
+        except OSError:
+            continue
+    return False
+
+
+def tcp_cause(url):
+    """None when the service's host accepts a TCP connection, else why not."""
+    parts = urllib.parse.urlsplit(url)
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        socket.create_connection((parts.hostname, port), timeout=DIAG_TIMEOUT).close()
+        return None
+    except socket.gaierror:
+        return "dns"
+    except ConnectionRefusedError:
+        return "refused"
+    except OSError:
+        return "unreachable"
+
+
+def diagnose(items):
+    """Refines the probe's cause for each (service, cause) newly confirmed
+    DOWN, and returns the causes in the same order.
+
+    The Pi's own Internet access comes first: without it every probe fails,
+    and that is the cause. A timeout is then split between a host that does
+    not even accept a connection and an application too slow to answer."""
+    needs_internet = ("dns", "unreachable", "timeout", "error")
+    internet = None
+    if any(cause in needs_internet for _, cause in items):
+        internet = internet_reachable()
+
+    def refine(item):
+        service, cause = item
+        if cause in needs_internet and not internet:
+            return "internet"
+        if cause in ("timeout", "error"):
+            return tcp_cause(service_url(service)) or cause
+        return cause
+
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(items))) as pool:
+        return list(pool.map(refine, items))
 
 
 # ------------------------------------------------------------------ history
@@ -420,8 +550,8 @@ def history_for_output(buckets):
 # -------------------------------------------------------------- transitions
 
 def load_transitions(raw):
-    """Normalises the log read from state.json: {sid: [[ts, "UP"|"DOWN"], ...]},
-    sorted, dropping unreadable entries rather than crashing."""
+    """Normalises the log read from state.json: {sid: [[ts, "UP"|"DOWN"(,
+    cause)], ...]}, sorted, dropping unreadable entries rather than crashing."""
     clean = {}
     if not isinstance(raw, dict):
         return clean
@@ -437,7 +567,10 @@ def load_transitions(raw):
             except (TypeError, ValueError):
                 continue
             status = "UP" if e[1] == "UP" else "DOWN"
-            kept.append([ts, status])
+            entry = [ts, status]
+            if status == "DOWN" and len(e) > 2 and isinstance(e[2], str) and e[2]:
+                entry.append(e[2][:32])
+            kept.append(entry)
         kept.sort(key=lambda e: e[0])
         clean[sid] = kept
     return clean
@@ -457,6 +590,106 @@ def prune_transitions(transitions, now_ts):
                 break
         if keep_from:
             del entries[:keep_from]
+
+
+# --------------------------------------------------------------------- gaps
+
+def load_gaps(raw):
+    """The periods the probe did not run: [[start, end, cause], ...]."""
+    clean = []
+    for g in raw if isinstance(raw, list) else []:
+        try:
+            clean.append([int(g[0]), int(g[1]), str(g[2])[:32]])
+        except (TypeError, ValueError, IndexError):
+            continue
+    return clean
+
+
+def pi_boot_time():
+    try:
+        with open("/proc/stat", "r", encoding="ascii") as f:
+            for line in f:
+                if line.startswith("btime "):
+                    return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def detect_gap(services_state, now_ts, boot_ts):
+    """A gap since the last saved probe, or None. "pi_restart": the Pi booted
+    meanwhile (a power cut, most often); "probe_stopped": only the service
+    was down. The start is the last flush, up to STATE_FLUSH_EVERY early."""
+    last = max((s.get("last_check", 0) for s in services_state.values()), default=0)
+    if not last or now_ts - last <= GAP_MIN:
+        return None
+    return [last, now_ts, "pi_restart" if boot_ts and boot_ts > last else "probe_stopped"]
+
+
+def prune_gaps(gaps, now_ts):
+    cutoff = now_ts - TRANSITIONS_KEEP
+    gaps[:] = [g for g in gaps if g[1] >= cutoff]
+
+
+# ------------------------------------------------------------------ LokHive
+
+def load_lokhive():
+    """LokHive's ingest address and token, read from lokhive.json, ignored by
+    Git: the token lets its holder feed the status page. Missing or
+    incomplete, nothing is sent."""
+    try:
+        with open(LOKHIVE_FILE, "r", encoding="utf-8") as f:
+            conf = json.load(f)
+        if conf.get("url") and conf.get("token"):
+            return conf["url"], conf["token"]
+        log("lokhive.json needs a url and a token: nothing sent to LokHive.")
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, AttributeError) as e:
+        log("lokhive.json unreadable, nothing sent to LokHive: %s" % e)
+    return None
+
+
+class LokhiveSender:
+    """Sends the latest data.json to LokHive from a thread of its own, so that
+    an unreachable server never holds the probes back. Each send carries the
+    whole state: the first one to succeed after an outage catches up on
+    everything, and a payload still waiting is simply replaced by the next."""
+
+    def __init__(self, url, token):
+        self.url = url
+        self.token = token
+        self.pending = None
+        self.reached = None
+        self.cond = threading.Condition()
+        threading.Thread(target=self.run, name="lokhive", daemon=True).start()
+
+    def submit(self, body):
+        with self.cond:
+            self.pending = body
+            self.cond.notify()
+
+    def run(self):
+        while True:
+            with self.cond:
+                while self.pending is None:
+                    self.cond.wait()
+                body, self.pending = self.pending, None
+            req = urllib.request.Request(self.url, data=body, method="POST", headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + self.token,
+                "User-Agent": "StatusMonitor/2.0",
+            })
+            try:
+                with urllib.request.urlopen(req, timeout=LOKHIVE_TIMEOUT):
+                    reached, why = True, None
+            except Exception as e:
+                reached, why = False, e
+            # One line when LokHive goes away, one when it is back.
+            if reached != self.reached:
+                log("Data sent to LokHive." if reached
+                    else "LokHive refused or unreachable, retrying with the next data: %s" % why)
+                self.reached = reached
 
 
 # ------------------------------------------------------------------- record
@@ -531,7 +764,7 @@ def realign_on_remote(message):
     already_pushed = git("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD",
                          check=False).returncode == 0
     if not already_pushed:
-        tag = "avant-realignement-%d" % int(time.time())
+        tag = "before-realign-%d" % int(time.time())
         git("tag", "-f", tag, "HEAD", check=False)
         log("Local HEAD kept under the tag %s." % tag)
 
@@ -604,10 +837,12 @@ def run_tick(services_config, state, now_ts):
     services_output = []
     status_changed = []
     transitioned = False
+    # Newly DOWN: (service, probe cause, journal entry, alert or None).
+    to_diagnose = []
 
     for s in services_config:
         sid = s["id"]
-        is_up = results.get(sid, False)
+        is_up, probe_cause = results.get(sid, (False, "error"))
 
         prev = prev_services.get(sid, {})
         prev_status = prev.get("status")
@@ -639,14 +874,18 @@ def run_tick(services_config, state, now_ts):
         journal = transitions.setdefault(sid, [])
         if not journal:
             journal.append([last_change, prev_status or status])
+            if not prev_status and status == "DOWN":
+                to_diagnose.append((s, probe_cause, journal[-1], None))
 
+        cause = prev.get("cause") if status == "DOWN" else None
         if prev_status and prev_status != status:
             transitioned = True
             status_changed.append((s["name"], status))
-            state["pending_alerts"].append({
+            alert = {
                 "name": s["name"], "status": status, "ts": now_ts,
                 "outage": now_ts - last_change if status == "UP" else 0,
-            })
+            }
+            state["pending_alerts"].append(alert)
             if prev_status == "UP":
                 # Finished streak: it becomes a candidate for the final record.
                 duration = now_ts - last_change
@@ -659,6 +898,8 @@ def run_tick(services_config, state, now_ts):
                     }
             last_change = now_ts
             journal.append([now_ts, status])
+            if status == "DOWN":
+                to_diagnose.append((s, probe_cause, journal[-1], alert))
 
         services_state[sid] = {
             "name": s["name"],
@@ -666,22 +907,36 @@ def run_tick(services_config, state, now_ts):
             "last_change": last_change,
             "last_check": now_ts,
             "first_fail_ts": first_fail_ts,
+            "cause": cause,
         }
-        # Nothing but the id, the coded name and the status: a public status
-        # page has no business revealing where the services it watches live.
-        # public_url and icon stay readable in config.json, which never leaves
-        # the machine.
+        # Nothing but the id, the coded name, the status and why it is down:
+        # a public status page has no business revealing where the services
+        # it watches live. public_url and icon stay readable in config.json,
+        # which never leaves the machine.
         services_output.append({
             "id": sid,
             "name": s["name"],
             "status": status,
             "since": last_change,
         })
+        if cause:
+            services_output[-1]["cause"] = cause
 
         # The raw measurement, not the denoised status: the history counters
         # tell what was *measured*, the transition log what was *true*. A
         # grace period thus stays visible as a slight dip in uptime.
         record_check(history, sid, is_up, now_ts)
+
+    if to_diagnose:
+        causes = diagnose([(s, c) for s, c, _, _ in to_diagnose])
+        outputs = {o["id"]: o for o in services_output}
+        for (s, _, entry, alert), cause in zip(to_diagnose, causes):
+            entry.append(cause)
+            if alert is not None:
+                alert["cause"] = cause
+            services_state[s["id"]]["cause"] = cause
+            outputs[s["id"]]["cause"] = cause
+            log("%s: DOWN, cause %s." % (s["name"], cause))
 
     state["services"] = services_state
     state["record_finished"] = finished_record
@@ -696,10 +951,18 @@ def main():
     state = {
         "services": old_state.get("services", {}),
         "transitions": load_transitions(old_state.get("transitions", {})),
+        "gaps": load_gaps(old_state.get("gaps", [])),
         "history": migrate_history(old_state.get("history", {})),
         "record_finished": old_state.get("record_finished", {}),
         "pending_alerts": old_state.get("pending_alerts", []),
     }
+    gap = detect_gap(state["services"], int(time.time()), pi_boot_time())
+    if gap:
+        state["gaps"].append(gap)
+        log("No probe for %ds before this start (%s)." % (gap[1] - gap[0], gap[2]))
+
+    lokhive = load_lokhive()
+    sender = LokhiveSender(*lokhive) if lokhive else None
     last_publish = old_state.get("last_publish", 0)
     # Missing from a state.json older than this version: assume everything
     # was written at least once rather than forcing an immediate flush that
@@ -736,8 +999,9 @@ def main():
         if due_flush:
             prune_history(state["history"], now_ts)
             prune_transitions(state["transitions"], now_ts)
+            prune_gaps(state["gaps"], now_ts)
             record = compute_record(state["record_finished"], state["services"], now_ts)
-            write_json_atomic(DATA_FILE, {
+            body = encode_json({
                 "t": now_ts,
                 "interval": POLL_INTERVAL,
                 "services": services_output,
@@ -747,8 +1011,12 @@ def main():
                     "end": record.get("end_ts"),
                 },
                 "transitions": state["transitions"],
+                "gaps": state["gaps"],
                 "history": {sid: history_for_output(b) for sid, b in state["history"].items()},
             })
+            write_bytes_atomic(DATA_FILE, body)
+            if sender:
+                sender.submit(body)
             last_flush = now_ts
 
         # Before Git: a push can take minutes on the Pi, the alert cannot.
@@ -767,7 +1035,7 @@ def main():
         if due_publish:
             if status_changed:
                 detail = ", ".join("%s -> %s" % (name, st) for name, st in status_changed)
-                message, amend = "Alerte : changement d'état (%s)" % detail, False
+                message, amend = "Status change alert (%s)" % detail, False
             else:
                 message = AUTO_MSG
                 amend = (
@@ -799,6 +1067,7 @@ def main():
             write_json_atomic(STATE_FILE, {
                 "services": state["services"],
                 "transitions": state["transitions"],
+                "gaps": state["gaps"],
                 "history": state["history"],
                 "record_finished": state["record_finished"],
                 "last_publish": last_publish,

@@ -1,5 +1,5 @@
 [Unit]
-Description=Sonde de disponibilité status-page
+Description=status-page availability probe
 After=network-online.target
 Wants=network-online.target
 

@@ -150,8 +150,9 @@ graphe le plus fin).
 | `expect_status` | non    | tout code 2xx/3xx | Impose un code HTTP exact                |
 
 La page publie exactement quatre champs par service : `id`, `name`, `status` et
-l'instant du dernier changement d'état. Rien d'autre ne sort de la machine —
-ni URL sondée, ni lien, ni icône, ni domaine. `config.json` est ignoré par Git
+l'instant du dernier changement d'état, plus la cause tant qu'il est hors ligne
+(voir plus bas). Rien d'autre ne sort de la machine — ni URL sondée, ni lien,
+ni icône, ni domaine. `config.json` est ignoré par Git
 et ne quitte jamais le Pi ; c'est là qu'on garde les adresses réelles.
 
 Changer un `id` réinitialise l'historique du service concerné.
@@ -170,6 +171,7 @@ Sans `notify.json`, aucune alerte n'est envoyée. Le fichier est ignoré par Git
 quiconque connaît l'URL peut écrire dans le salon.
 
 - L'alerte part **avant** le commit + push, pour ne pas attendre Git.
+- L'alerte de panne donne sa cause quand le Pi la connaît (voir ci-dessous).
 - Si Discord est injoignable, l'alerte est gardée dans `state.json` et
   retentée à chaque passage, puis abandonnée au bout de 6 h.
 - Le retour en ligne indique la durée de l'interruption.
@@ -186,9 +188,59 @@ un processus figé, pas seulement arrêté :
 * * * * * systemctl is-active --quiet monitor.service && curl -fsS -m 10 --retry 3 -o /dev/null https://hc-ping.com/<uuid>
 ```
 
+## Cause des pannes
+
+Chaque sonde en échec note pourquoi. Quand une panne est confirmée, et
+seulement à ce moment-là (rien ne tourne en plus tant que tout va bien), le Pi
+affine ce premier constat : il vérifie son propre accès à Internet (connexion
+TCP à 1.1.1.1 et 9.9.9.9) et, après un délai dépassé, si le serveur accepte
+encore une connexion. La cause est rangée avec la transition dans le journal
+(`[ts, "DOWN", cause]`) et dans le service tant qu'il est hors ligne.
+
+| Code          | Sens                                                          |
+|---------------|---------------------------------------------------------------|
+| `internet`    | le Pi n'atteint plus Internet : la connexion de la maison     |
+| `dns`         | le nom de domaine ne se résout plus                           |
+| `unreachable` | le serveur n'accepte aucune connexion (éteint, réseau)        |
+| `refused`     | le serveur refuse la connexion (nginx arrêté)                 |
+| `reset`       | le serveur coupe la connexion                                 |
+| `tls_cert`    | certificat refusé (expiré, mauvais nom…)                      |
+| `tls`         | autre erreur de chiffrement                                   |
+| `timeout`     | connexion acceptée, mais aucune réponse dans le délai         |
+| `http_NNN`    | réponse HTTP inattendue ; 502, 503, 504 : l'appli ne répond pas derrière nginx |
+| `error`       | autre chose                                                   |
+
+Le Pi ne voit que le réseau : la raison côté serveur (redémarrage, mise à jour,
+plantage) est ajoutée par LokHive, qui croise ces causes avec le journal du
+serveur.
+
+## Trous de mesure
+
+Au démarrage, si la dernière sonde enregistrée date de plus de 2 min, le Pi
+note un trou `[début, fin, cause]` dans `gaps` : `pi_restart` si le Pi a
+redémarré entre-temps (une coupure de courant, le plus souvent), sinon
+`probe_stopped` (seul le service était arrêté). Le début est celui de la
+dernière écriture sur la carte SD, donc jusqu'à une minute trop tôt.
+
+## Envoi à LokHive
+
+La page détaillée vit dans LokHive. Le Pi lui envoie le même contenu que
+`data.json`, à chaque écriture (toutes les minutes, et tout de suite à un
+changement d'état), depuis un fil à part : un LokHive injoignable ne retarde
+jamais les sondes. Chaque envoi porte tout l'état, donc le premier qui passe
+après une panne du serveur rattrape tout.
+
+```bash
+cp lokhive.json.example lokhive.json
+$EDITOR lokhive.json
+```
+
+Sans `lokhive.json`, rien n'est envoyé. Le fichier est ignoré par Git : le
+jeton permet d'alimenter la page.
+
 ## Publication Git
 
-- Changement d'état d'un service → commit dédié (`Alerte : changement d'état`).
+- Changement d'état d'un service → commit dédié (`Status change alert`).
 - Sinon → le commit automatique précédent est **amendé** puis repoussé avec
   `--force-with-lease`, ce qui garde le dépôt à taille constante malgré 288
   exécutions par jour. Un vrai commit est ouvert au moins une fois par jour.
@@ -196,7 +248,7 @@ un processus figé, pas seulement arrêté :
   réaligne : il repart de la tête distante et repose `data.json` par-dessus.
   Le Pi n'est propriétaire que des données, jamais du code — un changement de
   code poussé depuis un poste est donc intégré, pas écrasé. Si le HEAD local
-  portait quelque chose d'inédit, il est étiqueté `avant-realignement-<ts>`
+  portait quelque chose d'inédit, il est étiqueté `before-realign-<ts>`
   avant d'être défait, pour rester récupérable.
 - Une amende laisse l'ancien commit dans le reflog, donc joignable, donc jamais
   élagué par `gc` : environ 3,5 Mo par jour de carte SD. Le dépôt local est
